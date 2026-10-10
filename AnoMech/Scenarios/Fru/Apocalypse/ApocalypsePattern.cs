@@ -34,11 +34,11 @@ internal sealed class ApocalypsePattern
         for (var i = 0; i < support.Length; i++)
             (slots[support[i]], slots[dps[i]]) = (slots[dps[i]], slots[support[i]]);
     }
-    public static ApocalypsePattern Randomize()
+    public static ApocalypsePattern Randomize(Random random)
     {
         int[] durations = [0, 0, 1, 1, 2, 2, 3, 3];
-        Random.Shared.Shuffle(durations);
-        return new(Random.Shared.Next(4), Random.Shared.Next(2) == 0, durations);
+        random.Shuffle(durations);
+        return new(random.Next(4), random.Next(2) == 0, durations);
     }
     private int[] Adjusters(int start) => Enumerable.Range(0, 4)
         .Where(d => Enumerable.Range(start, 4).Count(i => water[i] == d) == 2)

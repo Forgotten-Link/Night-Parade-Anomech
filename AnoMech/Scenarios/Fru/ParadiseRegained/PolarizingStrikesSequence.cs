@@ -11,7 +11,7 @@ namespace AnoMech.Scenarios.Fru.ParadiseRegained;
 // An owned continuation, not an IScenario or a second entry in the selector.
 internal sealed class PolarizingStrikesSequence(SimWorld world, Func<SimEnemy?> pandora)
 {
-    private readonly DamageSolver damage = new(world.Party);
+    private readonly DamageSolver damage = new();
     private readonly SimEnemy?[,] helpers = new SimEnemy?[4, 2];
     private readonly PolarizingLine?[,] lines = new PolarizingLine?[4, 2];
 
@@ -41,6 +41,7 @@ internal sealed class PolarizingStrikesSequence(SimWorld world, Func<SimEnemy?> 
         for (var side = 0; side < 2; side++)
             helpers[round, side] = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId.Helper,
                 NameId: BNpcNameId.Pandora, Level: Level, Targetable: false, EnemyList: EnemyListMode.Never,
+                    Visibility: SpawnVisibility.InvisibleHelper,
                 Placement: new Placement(boss.Position, 0f)));
     }
 

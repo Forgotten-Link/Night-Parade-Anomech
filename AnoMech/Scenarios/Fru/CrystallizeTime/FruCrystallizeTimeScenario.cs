@@ -13,6 +13,7 @@ namespace AnoMech.Scenarios.Fru.CrystallizeTime;
 public sealed partial class FruCrystallizeTimeScenario : IScenario
 {
     public string Name => "Crystallize Time";
+    public bool SupportsMultiplayer => true;
     public float Duration => 67f;
     public IPhase Phase => FruZone.P4;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new CrystallizeTimeAi()];
@@ -43,14 +44,14 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
     private bool running;
 
     public void Run(SimWorld worldParam, int? selectedAi)
-        => Run(worldParam, CrystallizeTimePattern.Randomize(Random.Shared, false,
+        => Run(worldParam, CrystallizeTimePattern.Randomize(FruUtils.Random(worldParam), false,
             worldParam.Party.Player is null ? null : worldParam.Party.PlayerRole, SelectedPlayerPattern));
 
     internal void Run(SimWorld worldParam, CrystallizeTimePattern selectedPattern)
     {
         world = worldParam;
         pattern = selectedPattern;
-        damage = new(world.Party);
+        damage = new();
         owned.Clear(); tethers.Clear(); puddles.Clear(); puddleDestinations.Clear();
         rewinds.Clear(); rewindMarkers.Clear(); aeroSources.Clear(); wingVulns.Clear(); statusDeadlines.Clear();
         Array.Clear(hourglasses); Array.Clear(hourglassScenery); Array.Clear(dragons); Array.Clear(dragonHits); Array.Clear(dragonCooldown);
@@ -114,7 +115,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
             jumpPosition = target!.Position;
             jumpStart = oracle?.Position ?? jumpPosition;
             jumping = jumpPending = true;
-            oracle?.Cast(SpiritHit, targetLocation: jumpPosition, targetId: target.GameObjectId, castSeconds: 0f);
+            oracle?.Cast(SpiritHit, targetLocation: jumpPosition, target: target, castSeconds: 0f);
         });
         At(44, () => { if (jumpPending) Circle(jumpPosition, 5, SpiritHit, "Spirit Taker spread", pattern.JumpTarget); });
         At(46.5f, () => {
@@ -182,7 +183,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
     {
         var enemy = world.SpawnEnemy(new EnemySpawnConfig(id, NameId: name, Level: FruConstants.Level,
             Targetable: targetable, EnemyList: targetable && hostile ? EnemyListMode.Always : EnemyListMode.Never,
-            Placement: new Placement(position, MathF.PI), Scale: scale, IsHostile: hostile,
+            Visibility: FruUtils.SpawnVisibilityOf(id), Placement: new Placement(position, MathF.PI), Scale: scale, IsHostile: hostile,
             SpawnTimeline: spawnTimeline, ModelCharaId: modelCharaId));
         if (enemy != null) Own(enemy);
         return enemy;
@@ -272,7 +273,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
     private void Effect(uint action, Vector3 position, SimCharacter? target = null)
     {
         var helper = Spawn(FruConstants.BNpcBaseId.Helper, OracleName, position);
-        helper?.Cast(action, targetLocation: position, castSeconds: 0, targetId: target?.GameObjectId);
+        helper?.Cast(action, targetLocation: position, castSeconds: 0, target: target);
         // Native effects have their authored lifetime; source actors are retained
         // through the scenario, including Return's stationary ground trace.
     }
@@ -445,8 +446,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
     private static void ForceAway(SimCharacter? member, Vector3 source, float distance, float speed)
     {
         if (!member.IsAlive()) return;
-        if (member is SimPartyNpc bot) bot.Knockback(source, distance, speed);
-        else if (member is SimPlayer player) player.Knockback(source, distance, speed);
+        (member as ISimPartyMember)?.Knockback(source, distance, speed);
     }
     private static void Slide(SimCharacter member, Vector3 destination, float seconds)
     {

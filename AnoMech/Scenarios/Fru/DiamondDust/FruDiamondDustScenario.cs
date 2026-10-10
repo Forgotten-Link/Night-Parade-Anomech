@@ -12,6 +12,7 @@ namespace AnoMech.Scenarios.Fru.DiamondDust;
 public sealed partial class FruDiamondDustScenario : IScenario
 {
     public string Name => "Diamond Dust";
+    public bool SupportsMultiplayer => true;
     public float Duration => 54f;
     public IPhase Phase => FruZone.P2;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new DiamondDustAi()];
@@ -29,11 +30,11 @@ public sealed partial class FruDiamondDustScenario : IScenario
     private SimMapEffect? ice;
     private bool running, frozen;
 
-    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, PatternSettings.CreatePattern(Random.Shared));
+    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, PatternSettings.CreatePattern(FruUtils.Random(worldParam)));
     internal void Run(SimWorld worldParam, DiamondDustPattern chosen)
     {
         world = worldParam;
-        damage = new(world.Party);
+        damage = new();
         pattern = chosen;
         owned.Clear(); puddles.Clear(); stars.Clear(); previousPositions.Clear();
         boss = reflection = null;
@@ -53,7 +54,10 @@ public sealed partial class FruDiamondDustScenario : IScenario
         });
         At(7.1f, () => boss?.Cast(Raidwide, castSeconds: 5));
         At(12.1f, () => { foreach (var member in Members()) Hit(member, Raidwide, "Diamond Dust", false); });
-        At(14.9f, () => reflection?.Cast(pattern.Axe ? Axe : Scythe, castSeconds: 6));
+        At(14.9f, () => {
+            owned.Add(world.SpawnVoiceLine(pattern.Axe ? AxeVoice : ScytheVoice));
+            reflection?.Cast(pattern.Axe ? Axe : Scythe, castSeconds: 6);
+        });
         At(15.2f, () => {
             boss?.SetTargetable(false);
             boss?.SetVisible(false);
@@ -101,8 +105,7 @@ public sealed partial class FruDiamondDustScenario : IScenario
             foreach (var member in Members())
             {
                 Hit(member, HeavenlyStrike, "Heavenly Strike", false);
-                if (member is SimPlayer player) player.Knockback(Vector3.Zero, 12, 20);
-                else if (member is SimPartyNpc bot) bot.Knockback(Vector3.Zero, 12, 20);
+                (member as ISimPartyMember)?.Knockback(Vector3.Zero, 12, 20);
             }
         });
         At(KnockbackTime + 0.8f, () => boss?.SetVisible(false));
@@ -122,7 +125,7 @@ public sealed partial class FruDiamondDustScenario : IScenario
             boss?.SetPosition(pattern.GazePosition);
             boss?.Face(Vector3.Zero);
             boss?.SetVisible(true);
-            boss?.PlayActionTimeline(7747); // Native warp end, the gaze's reference cue.
+            boss?.PlayActionTimeline(WarpEndTimeline); // Native warp end, the gaze's reference cue.
         });
         At(GazeTime, GazeAndIce);
         At(ComboTime, () => {
@@ -157,7 +160,7 @@ public sealed partial class FruDiamondDustScenario : IScenario
         var actor = world.SpawnEnemy(new EnemySpawnConfig(id,
             NameId: id == Reflection ? ReflectionName : UsurperName, Level: FruConstants.Level,
             Targetable: targetable, EnemyList: id is Usurper or Reflection ? EnemyListMode.OnlyWhenVisible : EnemyListMode.Never,
-            Placement: new(position, 0), ModelCharaId: model));
+            Visibility: FruUtils.SpawnVisibilityOf(id), Placement: new(position, 0), ModelCharaId: model));
         if (actor != null) owned.Add(actor);
         return actor;
     }
@@ -166,7 +169,7 @@ public sealed partial class FruDiamondDustScenario : IScenario
     {
         var helper = Spawn(actor, position);
         helper?.SetRotation(rotation);
-        helper?.Cast(action, targetLocation: position, targetId: target?.GameObjectId, castSeconds: cast);
+        helper?.Cast(action, targetLocation: position, target: target, castSeconds: cast);
         if (helper != null) world.Events.Add(cast + 3, helper.Despawn);
     }
     private void Proteans()

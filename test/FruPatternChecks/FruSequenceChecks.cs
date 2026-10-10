@@ -9,11 +9,14 @@ internal static class FruSequenceChecks
     public static void Run()
     {
         var catalog = FruAllScenario.CreateCatalog();
-        var all = (IScenarioSequence)catalog[0];
+        var allIndex = catalog.ToList().FindIndex(s => s is IScenarioSequence);
+        var all = (IScenarioSequence)catalog[allIndex];
+        Check(catalog.Take(allIndex).Select(s => s.Name).SequenceEqual(["Fall of Faith", "Towers"])
+            && catalog.Take(allIndex).All(s => s.Phase == FruZone.P1), "P1 standalone entries are listed before All");
         string[] names = ["Diamond Dust", "Light Rampant", "Ultimate Relativity", "Apocalypse", "Darklit Dragonsong", "Crystallize Time", "Fulgent Blade", "Paradise Regained"];
         float[] ends = [54,48,61,57,63,67,43.5f,54];
         Check(all.Name == "All" && all.Scenarios.Select(s=>s.Name).SequenceEqual(names), "All uses the complete FRU progression beginning with P2");
-        Check(catalog.Skip(1).SequenceEqual(all.Scenarios), "All and individual entries share the same instances/settings");
+        Check(catalog.Skip(allIndex + 1).SequenceEqual(all.Scenarios), "All and individual entries share the same instances/settings");
         Check(all.Scenarios.Select(s=>s.Duration).SequenceEqual(ends), "Declared cleanup times cover the whole mechanic, including Polarizing Strikes");
         for (var i=0;i<8;i++) {
             var expectedPhase = i<2 ? FruZone.P2 : i<4 ? FruZone.P3 : i<6 ? FruZone.P4 : FruZone.P5;

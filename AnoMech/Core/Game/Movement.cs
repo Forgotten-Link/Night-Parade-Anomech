@@ -1,5 +1,6 @@
 using System;
 using System.Numerics;
+using AnoMech.Core.Game.Geometry;
 using AnoMech.Core.SimObjects;
 
 namespace AnoMech.Core.Game;
@@ -18,6 +19,8 @@ internal class Movement(SimCharacter parent)
     private float? finalRotation;
     private bool faceTravel = true;
     private bool avoid = true;
+    private int steerSide;
+    private bool moveForced;
     private ushort timelineId;
     private bool timelineBaseOverride;
     private bool animActive;
@@ -25,14 +28,30 @@ internal class Movement(SimCharacter parent)
     private Vector3? playerKnockbackPosition;
     private const float PlayerDisplacementTolerance = 0.1f;
 
+    // Only PushInDirectionEased sets this; every other move steps at a fixed speed.
+    private float? easeDuration;
+    private float easeElapsed;
+    private Vector3 easeStart;
+
+    protected virtual ObstacleField Obstacles => parent.Obstacles;
+
+    // While a status locks movement only forced moves run (knockbacks, pushes, carries, a forced
+    // Follow); an AI order is dropped, not deferred.
+    protected virtual bool Locked => parent.MovementLocked;
+
     private SimCharacter? followTarget;
+    private bool followForced;
     private float followCooldown;
 
     private SimTether? interceptTether;
     private float interceptMargin = 3f;   // park this many yards short of either tether endpoint
 
+    // Set around RetargetIntercept/TickFollow's own re-issued MoveTo so InternalMoveTo doesn't
+    // cancel the tracking driving them; any external move cancels a stale Intercept/Follow.
+    private bool internalReissue;
+
     public bool IsMoving => destination != null;
-    public bool IsForcedMoving { get; private set; }
+    public bool IsForcedMoving => destination != null && moveForced;
 
     public void Slide(Vector3 direction, float distance, float slideSpeed)
     {
@@ -41,53 +60,71 @@ internal class Movement(SimCharacter parent)
         // Native pc_contentsaction/icefloor. Ice carries the actor straight
         // through hazards; ordinary bot obstacle steering must not bend it.
         InternalMoveTo(parent.Position + Vector3.Normalize(direction) * distance, slideSpeed,
-            tl: 602, baseOverride: false, faceTravel: true, avoid: false);
-        IsForcedMoving = true;
+            tl: 602, baseOverride: false, faceTravel: true, avoid: false, forced: true);
     }
+    public Vector3? Destination => destination;
+    public bool IsIntercepting => interceptTether != null;
+    // Narrower than IsMoving: true only while a PushInDirectionEased is mid-flight.
+    public bool IsEasedMoving => easeDuration != null;
 
     public virtual void MoveTo(Vector3 t, float sp = 6f, float? finalRot = null, ushort tl = RunTimelineId, bool baseOverride = true)
         => InternalMoveTo(t, sp, finalRot, tl, baseOverride);
 
-    public void Follow(SimCharacter? target, float speed = 6f)
+    // forced: the mechanic itself is taking control (UMAD P1's Confusion), as opposed to a
+    // strat walking a bot to its spot. Only a forced follow may drive a real player -- see
+    // PlayerMovement.CanFollow.
+    public void Follow(SimCharacter? target, float speed = 6f, bool forced = false)
     {
         if (!target.IsAlive())
         {
             followTarget = null;
+            followForced = false;
             Stop();
             return;
         }
+        if (!forced && Locked) return;
         followTarget = target;
+        followForced = forced;
         followCooldown = 0f;
         interceptTether = null;
         this.speed = MathF.Max(0f, speed);
     }
+
+    // Whether this character may be walked by a follow at all. Movement drives anything;
+    // PlayerMovement refuses the unforced kind.
+    protected virtual bool CanFollow(bool forced) => true;
 
     // Walk to the nearest point on the tether line and keep tracking it: TickIntercept
     // re-projects every frame so a tether whose endpoints drift is still met. `margin`
     // is how many yards short of either endpoint to park.
     public void Intercept(SimTether? tether, float margin = 3f)
     {
+        if (Locked) return;
         followTarget = null;
         interceptTether = tether;
         interceptMargin = margin;
-        RetargetIntercept();
+        RetargetIntercept(logDetail: true);
     }
 
-    // Re-project the parent onto the tether segment and re-issue the move. Self-cancels
-    // (clears tracking, issues no move) if the tether is gone or an endpoint died, so any
-    // in-flight move just finishes.
-    private void RetargetIntercept()
+    // Re-project the parent onto the tether segment and re-issue the move; self-cancels if the
+    // tether or an endpoint is gone. logDetail only on the initial Intercept() call.
+    private void RetargetIntercept(bool logDetail = false)
     {
         var margin = interceptMargin;
         if (interceptTether is not { A: { } a, B: { } b } || !a.IsAlive() || !b.IsAlive())
         {
+            DiagnosticLog.Warn(
+                $"[Movement] RetargetIntercept self-cancelled: tether={(interceptTether == null ? "null" : "present")} "
+                + $"A={(interceptTether?.A == null ? "null" : interceptTether.A.IsAlive() ? "alive" : "dead")} "
+                + $"B={(interceptTether?.B == null ? "null" : interceptTether.B.IsAlive() ? "alive" : "dead")} -- no MoveTo issued.");
             interceptTether = null;
             return;
         }
         var src = new Vector2(a.Position.X, a.Position.Z);
         var seg = new Vector2(b.Position.X, b.Position.Z) - src;
         var len = seg.Length();
-        if (len < 1e-6f) { MoveTo(new Vector3(src.X, parent.Position.Y, src.Y)); return; }
+        internalReissue = true;
+        if (len < 1e-6f) { MoveTo(new Vector3(src.X, parent.Position.Y, src.Y)); internalReissue = false; return; }
         var rel = new Vector2(parent.Position.X, parent.Position.Z) - src;
         // Park `margin` yards short of either endpoint instead of standing right on it.
         // On a segment under 2*margin long the two insets cross, so settle on the midpoint.
@@ -97,8 +134,13 @@ internal class Movement(SimCharacter parent)
         // Slide the parked point along the tether line to the nearest spot clear of
         // obstacles, so the bot lands on the grab corridor instead of being parked
         // perpendicular off it when a black hole sits on the line.
-        var target = parent.Obstacles.NearestClearOnSegment(src, src + seg, t, tMin, tMax);
+        var target = Obstacles.NearestClearOnSegment(src, src + seg, t, tMin, tMax);
+        if (logDetail)
+            DiagnosticLog.Info(
+                $"[Movement] RetargetIntercept: from ({parent.Position.X:F1},{parent.Position.Z:F1}) toward "
+                + $"target ({target.X:F1},{target.Y:F1}) on segment A({src.X:F1},{src.Y:F1})-B({(src + seg).X:F1},{(src + seg).Y:F1}), t={t:F2}.");
         MoveTo(new Vector3(target.X, parent.Position.Y, target.Y));
+        internalReissue = false;
     }
 
     // Keep the intercept aimed at the moving tether each frame. Exception: once the
@@ -122,9 +164,32 @@ internal class Movement(SimCharacter parent)
     {
         var kbDestination = parent.Placement().Face(source).MoveForward(-distance).Position;
         // Knockback is forced movement: don't steer around or stop short of obstacles.
-        InternalMoveTo(kbDestination, kbSpeed, tl: KnockbackTimelineId, baseOverride: false, faceTravel: false, avoid: false);
+        InternalMoveTo(kbDestination, kbSpeed, tl: KnockbackTimelineId, baseOverride: false, faceTravel: false, avoid: false, forced: true);
         playerKnockback = parent is SimPlayer && parent.IsAlive();
-        IsForcedMoving = parent.IsAlive();
+    }
+
+    // Forced movement along a fixed heading (Umad P1's arrows), with Knockback's forced-move
+    // semantics.
+    public void PushInDirection(float heading, float distance, float pushSpeed)
+    {
+        var dir = new Vector2(MathF.Sin(heading), MathF.Cos(heading));
+        var dest = parent.Position + new Vector3(dir.X * distance, 0f, dir.Y * distance);
+        InternalMoveTo(dest, pushSpeed, tl: KnockbackTimelineId, baseOverride: false, faceTravel: false, avoid: false, forced: true);
+    }
+
+    // Same forced-move semantics, but smoothstep-eased over durationSeconds: a real arrow push
+    // eases in, holds and eases out over ~1s rather than sliding at one speed.
+    public void PushInDirectionEased(float heading, float distance, float durationSeconds)
+    {
+        var dir = new Vector2(MathF.Sin(heading), MathF.Cos(heading));
+        var start = parent.Position;
+        var dest = start + new Vector3(dir.X * distance, 0f, dir.Y * distance);
+        // Speed is meaningless for an eased move. The ease fields are set after the call, which
+        // clears easeDuration.
+        InternalMoveTo(dest, 0f, tl: KnockbackTimelineId, baseOverride: false, faceTravel: false, avoid: false, forced: true);
+        easeStart = start;
+        easeDuration = MathF.Max(0.01f, durationSeconds);
+        easeElapsed = 0f;
     }
 
     // Shared move entry for MoveTo (locomotion) and Knockback (one-shot action).
@@ -133,17 +198,27 @@ internal class Movement(SimCharacter parent)
     // (knockback). See StartAnim for why the two need different handling.
     private void InternalMoveTo(
         Vector3 moveDestination, float sp = 6f, float? finalRot = null, ushort tl = RunTimelineId, bool baseOverride = true,
-        bool faceTravel = true, bool avoid = true)
+        bool faceTravel = true, bool avoid = true, bool forced = false)
     {
         if (!parent.IsAlive()) return;   // dead characters don't move
+        if (!forced && Locked) return;
+        // An external move supersedes any Intercept/Follow.
+        if (!internalReissue)
+        {
+            interceptTether = null;
+            followTarget = null;
+            steerSide = 0;
+        }
         playerKnockback = false;
         playerKnockbackPosition = null;
-        IsForcedMoving = false;
         destination = moveDestination;
+        moveForced = forced;
         speed = MathF.Max(0f, sp);
         finalRotation = finalRot;
         this.faceTravel = faceTravel;
         this.avoid = avoid;
+        // A stale ease must not carry onto a fixed-speed move.
+        easeDuration = null;
         var sameAnim = animActive && timelineId == tl;
         timelineId = tl;
         timelineBaseOverride = baseOverride;
@@ -152,6 +227,8 @@ internal class Movement(SimCharacter parent)
 
     public void Tick(float deltaSeconds)
     {
+        if (Locked) DropUnforcedOrders();
+
         // SimCharacter has just sampled the native actor position. A gap-closer
         // can take over before our last slide frame; release the old destination
         // instead of pushing the player back toward it. Ignore floor height and
@@ -165,6 +242,7 @@ internal class Movement(SimCharacter parent)
                 return;
             }
         }
+
         if (parent.AnimationLock)
         {
             StopAnim();
@@ -183,13 +261,25 @@ internal class Movement(SimCharacter parent)
         // rest of the way unanimated.
         if (!animActive) StartAnim();
 
+        // Eased moves have their own path: the fixed-speed branch would treat speed 0 as "arrived".
+        if (easeDuration is { } duration)
+        {
+            easeElapsed += deltaSeconds;
+            var t = Math.Clamp(easeElapsed / duration, 0f, 1f);
+            var eased = t * t * (3f - 2f * t);
+            var next = Vector3.Lerp(easeStart, dest, eased);
+            parent.SetPosition(next);
+            if (t >= 1f) Stop();
+            return;
+        }
+
         var cur = parent.Position;
 
-        // Park-at-edge: if the destination lies inside an obstacle, retarget to the
-        // nearest boundary point so the bot stops at the edge instead of orbiting an
-        // unreachable center. Skipped for forced movement (knockback).
+        // Park-at-edge: if the destination lies inside (or within steering clearance of) an
+        // obstacle, retarget just outside it so the bot stops at the edge instead of orbiting
+        // an unreachable point. Skipped for forced movement (knockback).
         var dest2 = new Vector2(dest.X, dest.Z);
-        if (avoid) dest2 = parent.Obstacles.ClampOutside(dest2);
+        if (avoid) dest2 = Obstacles.ClampForSteering(dest2);
 
         var dx = dest2.X - cur.X;
         var dz = dest2.Y - cur.Z;
@@ -199,7 +289,8 @@ internal class Movement(SimCharacter parent)
         if (distSq <= step * step || step <= 0f)
         {
             var rot = finalRotation ?? (faceTravel && distSq > 1e-6f ? MathF.Atan2(dx, dz) : parent.Rotation);
-            parent.SetPosition(new Placement(new Vector3(dest2.X, dest.Y, dest2.Y), rot));
+            parent.SetPosition(new Vector3(dest2.X, dest.Y, dest2.Y));
+            parent.TurnTo(rot);
             finalRotation = null;
             Stop();
         }
@@ -209,9 +300,10 @@ internal class Movement(SimCharacter parent)
             var desired = new Vector2(dx / dist, dz / dist);
             // Steer around obstacles; a no-op (returns `desired`) when the field is
             // empty, nothing blocks, or this is forced movement.
-            var heading = avoid ? parent.Obstacles.Steer(new Vector2(cur.X, cur.Z), desired, dist) : desired;
+            var heading = avoid ? Obstacles.Steer(new Vector2(cur.X, cur.Z), desired, dist, ref steerSide) : desired;
             var next = new Vector3(cur.X + heading.X * step, cur.Y, cur.Z + heading.Y * step);
-            parent.SetPosition(new Placement(next, faceTravel ? MathF.Atan2(heading.X, heading.Y) : parent.Rotation));
+            parent.SetPosition(next);
+            if (faceTravel) parent.TurnTo(MathF.Atan2(heading.X, heading.Y));
         }
         // Start tracking only after the first actual slide write: scenario
         // events run before the actor sample, so the position at Knockback()
@@ -225,10 +317,13 @@ internal class Movement(SimCharacter parent)
         if (!followTarget.IsAlive())
         {
             followTarget = null;
+            followForced = false;
             followCooldown = 0f;
             Stop();
             return;
         }
+        // Before the arrival branch below, which also turns the character to face the target.
+        if (!CanFollow(followForced)) return;
 
         // Arrived last frame: sit out the cooldown facing the target, don't chase yet.
         if (followCooldown > 0f)
@@ -248,8 +343,18 @@ internal class Movement(SimCharacter parent)
         }
         else
         {
-            InternalMoveTo(followTarget.Position, speed);
+            internalReissue = true;
+            InternalMoveTo(followTarget.Position, speed, forced: followForced);
+            internalReissue = false;
         }
+    }
+
+    // A lock landing mid-move stops what the AI ordered; forced movement carries on.
+    private void DropUnforcedOrders()
+    {
+        if (followTarget != null && !followForced) followTarget = null;
+        interceptTether = null;
+        if (destination != null && !moveForced) Stop();
     }
 
     public void Stop() => Stop(resetAnimation: true);
@@ -257,8 +362,8 @@ internal class Movement(SimCharacter parent)
     private void Stop(bool resetAnimation)
     {
         destination = null;
-        IsForcedMoving = false;
         interceptTether = null;
+        easeDuration = null;
         playerKnockback = false;
         playerKnockbackPosition = null;
         if (resetAnimation) StopAnim();
@@ -278,14 +383,16 @@ internal class Movement(SimCharacter parent)
     //     loop the pose forever (the original "knockback stuck" bug).
     protected void StartAnim()
     {
-        parent.PlayActionTimeline(timelineId, baseOverride: timelineBaseOverride ? timelineId : (ushort)0);
+        // Native entry point: SimCharacter.PlayActionTimeline broadcasts scenario cues,
+        // which movement must not trigger.
+        parent.PlayActionTimelineNative(timelineId, baseOverride: timelineBaseOverride ? timelineId : (ushort)0);
         animActive = true;
     }
 
     protected void StopAnim()
     {
         if (!animActive) return;
-        parent.ResetActionTimeline();
+        parent.ResetActionTimelineNative();
         animActive = false;
     }
 
@@ -295,14 +402,42 @@ internal class Movement(SimCharacter parent)
         var dx = target.X - parent.Position.X;
         var dz = target.Z - parent.Position.Z;
         if (dx * dx + dz * dz < 1e-6f) return;
-        parent.SetRotation(MathF.Atan2(dx, dz));
+        parent.TurnTo(MathF.Atan2(dx, dz));
     }
 }
 
 internal sealed class PlayerMovement(SimCharacter parent) : Movement(parent)
 {
+    // Normally a no-op, since AiManager addresses every slot uniformly; DebugBotControl lets
+    // the AI drive the real character (SyncInputLock then zeroes manual input via IsMoving).
     public override void MoveTo(Vector3 t, float sp = 6f, float? finalRot = null, ushort tl = RunTimelineId, bool baseOverride = true)
     {
+        if (DebugBotControl.Enabled)
+        {
+            base.MoveTo(t, sp, finalRot, tl, baseOverride);
+            return;
+        }
         // NO-OP - player cannot be moved like this
+    }
+
+    // The same rule for follows, which reach the mover through TickFollow rather than MoveTo:
+    // a strat walking its bots must never take the wheel from someone practising. Knockbacks,
+    // arrow pushes and a forced follow (Confusion) still apply -- the real fight moves you too.
+    protected override bool CanFollow(bool forced) => forced || DebugBotControl.Enabled;
+
+    // A human walks a forced follow (Confusion) straight; only a bot steers around geometry.
+    protected override ObstacleField Obstacles => DebugBotControl.Enabled ? base.Obstacles : ObstacleField.Empty;
+}
+
+// Position comes from received poses (SimNetworkPuppet.ApplyNetworkPose); a scheduled bot
+// MoveTo would fight it every frame.
+internal sealed class NetworkPuppetMovement(SimCharacter parent) : Movement(parent)
+{
+    // The owner's own client applies their lock.
+    protected override bool Locked => false;
+
+    public override void MoveTo(Vector3 t, float sp = 6f, float? finalRot = null, ushort tl = RunTimelineId, bool baseOverride = true)
+    {
+        // NO-OP - position comes from the network, not local pathing
     }
 }

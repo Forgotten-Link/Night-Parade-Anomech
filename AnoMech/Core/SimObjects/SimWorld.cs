@@ -1,12 +1,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Dalamud.Game.Text;
 using System.Numerics;
 using AnoMech.Core;
 using AnoMech.Core.Game;
 using AnoMech.Core.Game.Geometry;
 using AnoMech.Core.Game.Party;
 using AnoMech.Core.Map;
+using AnoMech.Scenarios;
+using AnoMech.Core.Native.Interfaces;
 
 namespace AnoMech.Core.SimObjects;
 
@@ -19,9 +22,6 @@ public sealed class SimWorld : ISimObject, IDisposable
 {
     // Ownership
     private readonly List<ISimObject> children = new();
-    private readonly EnmityHud enmityHud = new();
-    private readonly PartyHud partyHud = new();
-    private readonly Waymarks waymarks;
 
     // Zone loading and map effects entry point.
     public MapController Map { get; } = new();
@@ -39,6 +39,25 @@ public sealed class SimWorld : ISimObject, IDisposable
     public EventScheduler Events { get; }
     public Vector3 ScenarioOrigin { get; set; }
 
+    // The run's mechanic randomness; engine noise draws from a named Stream instead, so it
+    // can't shift these rolls. Replaced per run by Game (see Reseed).
+    public Rng Rng { get; private set; } = Rng.Detached;
+    private readonly Dictionary<string, Rng> streams = new();
+
+    public void Reseed(int seed)
+    {
+        Rng = new Rng(seed);
+        streams.Clear();
+    }
+
+    // This run's independent stream for one consumer, created on first use.
+    public Rng Stream(string name)
+    {
+        if (!streams.TryGetValue(name, out var stream))
+            streams[name] = stream = Rng.Fork(name);
+        return stream;
+    }
+
     // Converts between scenario-local coordinates (the SimXxx public API) and
     // world/global coordinates (the engine's GameObject->Position). Shared by
     // every SimCharacter (injected as a protected field) and used by spawners
@@ -49,7 +68,6 @@ public sealed class SimWorld : ISimObject, IDisposable
     {
         Events = events;
         Coordinates = new Coordinates(() => ScenarioOrigin);
-        waymarks = new Waymarks(Coordinates);
     }
 
     // A fixed end is just the character; dynamic ends are End.Passable(...) /
@@ -69,7 +87,7 @@ public sealed class SimWorld : ISimObject, IDisposable
 
     private SimTether CreateTether(ITetherEnd from, ITetherEnd to, ushort tetherId, float duration, ushort debuffStatusId)
     {
-        var tether = new SimTether(from, to, new TetherContext(Party.Find, tetherId), debuffStatusId, duration);
+        var tether = new SimTether(from, to, new TetherContext(Party.Find, tetherId, Rng), debuffStatusId, duration);
         children.Add(tether);
         return tether;
     }
@@ -80,20 +98,6 @@ public sealed class SimWorld : ISimObject, IDisposable
         var enemy = SimEnemy.Spawn(config, this);
         if (enemy != null) children.Add(enemy);
         return enemy;
-    }
-
-    public SimMapEffect SpawnMapEffect(byte index, uint show, uint hide)
-    {
-        var effect = new SimMapEffect(Map, index, show, hide);
-        children.Add(effect);
-        return effect;
-    }
-
-    public SimVoiceLine SpawnVoiceLine(uint voiceId)
-    {
-        var voice = new SimVoiceLine(voiceId);
-        children.Add(voice);
-        return voice;
     }
 
     // Allocates an EventObject actor in EventObjectManager's 40-slot pool and
@@ -117,11 +121,17 @@ public sealed class SimWorld : ISimObject, IDisposable
         return tower;
     }
 
-    // Places the scenario's waymark layout. Offsets are scenario-relative;
-    // Waymarks resolves them through Coordinates. Cleared in Reset (like
-    // Markings) — Waymarks is a writer owned here, not a tracked child.
+    // Places the scenario's waymark layout (scenario-local offsets). Cleared in Despawn, not a
+    // tracked child.
     public void PlaceWaymarks(IReadOnlyList<Waymark> layout)
-        => waymarks.Place(layout);
+    {
+        foreach (var waymark in layout)
+        {
+            if (Natives.Waymarks.Set(waymark.Slot, Coordinates.ToGlobal(waymark.Offset))) continue;
+            Plugin.Log.Warning("Waymarks: MarkingController unavailable");
+            return;
+        }
+    }
 
     // Suppress a native GameObject (by BaseId) for the duration of the scenario.
     public void HideObject(uint baseId)
@@ -140,25 +150,49 @@ public sealed class SimWorld : ISimObject, IDisposable
     public bool IsOutsideArena(Vector3 local)
         => children.OfType<SimArenaBoundary>().FirstOrDefault()?.IsOutside(local) ?? false;
 
+    // Mirrored to peers by MultiplayerManager (host only, so a replayed SpawnOmen doesn't loop):
+    // an omen isn't a SimObject the snapshot sync walks.
+    public event Action<string, Placement, Vector3, float>? OmenSpawned;
+
+    // A scenario message the whole party should see (which arrow was missed, why everyone just
+    // died). Printed here and mirrored to peers, which have no other channel for mid-run text.
+    public event Action<string>? Announced;
+
+    public void Announce(string text)
+    {
+        Plugin.ChatGui.Print(new XivChatEntry { Type = XivChatType.SystemMessage, Message = $"[AnoMech] {text}" });
+        Announced?.Invoke(text);
+    }
+
     // Spawns a standalone AOE telegraph (omen StaticVfx) that auto-expires after
     // `durationSeconds` and is cleaned up on world reset. `placement` is scenario-local
     // (like the rest of the SimXxx API); SimOmen lifts it to world coords. `scale`
     // follows SimOmen's convention: scale.X = halfWidth, scale.Z = length for rect omens.
+    // The live count is remotely driven on a peer, and each omen holds a native VfxObject.
+    public bool CanSpawnOmen => children.Count(c => c is SimOmen) < Multiplayer.NetGuard.MaxLiveOmens;
+
     // A null duration persists until the returned handle is despawned or reset.
     // Scenery AVFX uses its authored world scale and may require a start trigger.
+    // Only timed omens are mirrored to peers: the wire format carries no handle or trigger.
     public SimOmen SpawnOmen(string path, Placement placement, Vector3 scale,
         float? durationSeconds = null, uint? startTrigger = null)
     {
         var omen = new SimOmen(Coordinates, path, placement, scale, durationSeconds, startTrigger);
         children.Add(omen);
+        if (durationSeconds is { } duration && startTrigger is null)
+            OmenSpawned?.Invoke(path, placement, scale, duration);
         return omen;
     }
 
-    // Explicit action-backed omen. This is useful when the action's native cast
-    // packet would expose an incorrect client-side telegraph, but its authored
-    // Omen resource is still the correct visual to display.
     public void SpawnOmen(uint actionId, Placement placement, float durationSeconds)
-        => children.Add(new SimOmen(Coordinates, actionId, placement.Position, placement.Rotation, durationSeconds));
+        => SpawnActionOmen(actionId, placement.Position, placement.Rotation, durationSeconds);
+
+    // Standalone telegraph derived from `actionId`'s own Omen sheet entry (shape/scale
+    // read from Action.CastType/EffectRange/XAxisModifier), for a boss ability whose real
+    // telegraph is duty-scripted rather than driven by the caster's own cast. SimCast
+    // bypasses Character::StartCast, so the native auto-omen never fires on its own.
+    public void SpawnActionOmen(uint actionId, Vector3 origin, float rotation, float durationSeconds)
+        => children.Add(new SimOmen(Coordinates, actionId, origin, rotation, durationSeconds));
 
     // Change the active weather mid-scenario. weatherId is a Weather-sheet row;
     // transition is the fade-in time in seconds. A scenario's default weather
@@ -170,12 +204,33 @@ public sealed class SimWorld : ISimObject, IDisposable
     // Spawns the eight party slots and wires in the local player. Must be called
     // after ScenarioOrigin is set. Party is added first so it despawns last in
     // Reset's reverse-order teardown (tethers and enemies reference slot positions).
-    public void CreateParty(uint playerJob, PartyRole? roleOverride = null, bool solo = false, byte? levelOverride = null)
+    // networkRoles: multiplayer slots claimed by other real participants — see
+    // PartyCreator.Populate.
+    public void CreateParty(uint playerJob, PartyRole? roleOverride = null, bool solo = false, IReadOnlySet<PartyRole>? networkRoles = null, IReadOnlyDictionary<PartyRole, NetworkSeat>? networkSeats = null, byte? levelOverride = null)
     {
         var party = new SimParty();
-        PartyCreator.Populate(party, new SimPlayer(Coordinates), playerJob, this, roleOverride, solo, levelOverride);
+        PartyCreator.Populate(party, new SimPlayer(Coordinates), playerJob, this, roleOverride, solo, networkRoles, networkSeats, levelOverride);
+        party.SetInCombat(true);
         children.Add(party);
         Party = party;
+    }
+
+    public SimMapEffect SpawnMapEffect(byte index, uint show, uint hide)
+    {
+        var effect = new SimMapEffect(Map, index, show, hide);
+        children.Add(effect);
+        return effect;
+    }
+
+    // Mirrored to peers by MultiplayerManager, like OmenSpawned.
+    public event Action<uint>? VoiceLineSpawned;
+
+    public SimVoiceLine SpawnVoiceLine(uint voiceId)
+    {
+        var voice = new SimVoiceLine(voiceId);
+        children.Add(voice);
+        VoiceLineSpawned?.Invoke(voiceId);
+        return voice;
     }
 
     // Add late support bots to the existing party so damage, HUD, arena bounds,
@@ -186,19 +241,21 @@ public sealed class SimWorld : ISimObject, IDisposable
     public void Tick(float deltaSeconds)
     {
         Map.Tick();
+        Natives.VfxSpawnLog.Tick();
+        Natives.BattleCharas.SweepOrphans();
         children.Update(deltaSeconds);
-        enmityHud.Refresh(children.OfType<SimEnemy>(), deltaSeconds);
-        partyHud.Refresh(Party);
+        Natives.EnmityHud.Refresh(children.OfType<SimEnemy>(), deltaSeconds);
+        Natives.PartyHud.Refresh(Party);
     }
 
     public void Despawn()
     {
         children.Despawn();
         Party = SimParty.Empty;
-        enmityHud.Clear();
-        partyHud.Clear();
-        Markings.ClearAll();
-        waymarks.ClearAll();
+        Natives.EnmityHud.Clear();
+        Natives.PartyHud.Clear();
+        Natives.Markings.ClearAll();
+        Natives.Waymarks.ClearAll();
         Obstacles.Clear();
         ScenarioOrigin = default;
     }
@@ -206,7 +263,5 @@ public sealed class SimWorld : ISimObject, IDisposable
     public void Dispose()
     {
         Despawn();
-        enmityHud.Dispose();
-        Map.Dispose();
     }
 }

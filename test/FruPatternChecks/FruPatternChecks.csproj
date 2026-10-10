@@ -13,6 +13,8 @@
     <Compile Include="../../AnoMech/Scenarios/Fru/DarklitDragonsong/*.cs" Exclude="../../AnoMech/Scenarios/Fru/DarklitDragonsong/FruDarklitSettings.cs" Link="DarklitDragonsong/%(Filename)%(Extension)" />
     <Compile Include="../../AnoMech/Scenarios/Fru/UltimateRelativity/*.cs" Link="UltimateRelativity/%(Filename)%(Extension)" />
     <Compile Include="../../AnoMech/Scenarios/Fru/LightRampant/*.cs" Link="LightRampant/%(Filename)%(Extension)" />
+    <Compile Include="../../AnoMech/Scenarios/Fru/FallOfFaith/*.cs" Link="FallOfFaith/%(Filename)%(Extension)" />
+    <Compile Include="../../AnoMech/Scenarios/Fru/Towers/*.cs" Link="Towers/%(Filename)%(Extension)" />
     <Compile Include="../../AnoMech/Scenarios/Fru/DiamondDust/*.cs" Exclude="../../AnoMech/Scenarios/Fru/DiamondDust/FruDiamondDustSettings.cs" Link="DiamondDust/%(Filename)%(Extension)" />
     <Compile Include="../../AnoMech/Scenarios/Fru/Apocalypse/*.cs" Link="Apocalypse/%(Filename)%(Extension)" />
     <Compile Include="../../AnoMech/Scenarios/Fru/CrystallizeTime/*.cs" Exclude="../../AnoMech/Scenarios/Fru/CrystallizeTime/FruCrystallizeTimeSettings.cs" Link="CrystallizeTime/%(Filename)%(Extension)" />

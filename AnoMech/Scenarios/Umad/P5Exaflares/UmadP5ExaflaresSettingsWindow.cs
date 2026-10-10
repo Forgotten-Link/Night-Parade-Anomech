@@ -31,6 +31,7 @@ public sealed class UmadP5ExaflaresSettingsWindow
 
         if (SettingsGrid.Begin("##p5exaflares"))
         {
+            SettingsGrid.FightOnlyNote();
             DrawOrderRow("Left order:", "##leftorder", Overrides.LeftOrder, v => Overrides.LeftOrder = v);
             DrawOrderRow("Right order:", "##rightorder", Overrides.RightOrder, v => Overrides.RightOrder = v);
             SettingsGrid.End();
@@ -41,7 +42,7 @@ public sealed class UmadP5ExaflaresSettingsWindow
     {
         SettingsGrid.Row(label);
         var idx = (int)current;
-        ImGui.SetNextItemWidth(180);
+        SettingsGrid.ItemWidth(180);
         if (ImGui.Combo(id, ref idx, OrderLabels, OrderLabels.Length))
             set((ExaFlareOrder)idx);
     }

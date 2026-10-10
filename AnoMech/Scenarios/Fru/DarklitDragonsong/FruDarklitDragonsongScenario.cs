@@ -15,6 +15,7 @@ namespace AnoMech.Scenarios.Fru.DarklitDragonsong;
 public sealed partial class FruDarklitDragonsongScenario : IScenario
 {
     public string Name => "Darklit Dragonsong";
+    public bool SupportsMultiplayer => true;
     public float Duration => EndTime;
     public IPhase Phase => FruZone.P4;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new DarklitAi()];
@@ -35,10 +36,10 @@ public sealed partial class FruDarklitDragonsongScenario : IScenario
     private Vector3 spiritPosition, farPosition, jumpStart, jumpEnd;
     private float jumpTime;
     private PartyRole farTarget;
-    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, DarklitPattern.Random(Random.Shared));
+    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, DarklitPattern.Random(FruUtils.Random(worldParam)));
     internal void Run(SimWorld worldParam, DarklitPattern chosen)
     {
-        world = worldParam; damage = new(world.Party); pattern = chosen;
+        world = worldParam; damage = new(); pattern = chosen;
         // Default to a bot, even when the player occupies the MT slot.
         // Player participation is opt-in and requires a tank role.
         somberTank = PlayerTakesSomberDance && world.Party.Get(PartyRole.MainTank) is SimPlayer
@@ -134,8 +135,8 @@ public sealed partial class FruDarklitDragonsongScenario : IScenario
             usurper?.SetVisible(true); oracle?.SetVisible(true);
         });
         At(53.2f, () => {
-            usurper?.Cast(Ct.AkhMornUsurper, targetId: world.Party.Get(PartyRole.MainTank)?.GameObjectId, castSeconds: 3.7f);
-            oracle?.Cast(Ct.AkhMornOracle, targetId: world.Party.Get(PartyRole.OffTank)?.GameObjectId, castSeconds: 3.7f);
+            usurper?.Cast(Ct.AkhMornUsurper, target: world.Party.Get(PartyRole.MainTank), castSeconds: 3.7f);
+            oracle?.Cast(Ct.AkhMornOracle, target: world.Party.Get(PartyRole.OffTank), castSeconds: 3.7f);
         });
         for (var hit = 0; hit < 4; hit++) At(58.6f + hit * 0.6f, ResolveAkhMorn);
         At(Duration, Finish);
@@ -149,7 +150,7 @@ public sealed partial class FruDarklitDragonsongScenario : IScenario
     {
         var actor = world.SpawnEnemy(new EnemySpawnConfig(id, NameId: name, Level: FruConstants.Level,
             Targetable: targetable, EnemyList: id == Ct.Usurper ? EnemyListMode.Manual : targetable && hostile ? EnemyListMode.Always : EnemyListMode.Never,
-            IsHostile: hostile, ModelCharaId: model, SpawnTimeline: spawnTimeline, Placement: new(position, MathF.PI)));
+            IsHostile: hostile, ModelCharaId: model, SpawnTimeline: spawnTimeline, Visibility: FruUtils.SpawnVisibilityOf(id), Placement: new(position, MathF.PI)));
         if (actor != null) { Own(actor); if (id == Ct.Usurper) actor.SetVisibleInEnemyList(targetable); }
         return actor;
     }
@@ -201,7 +202,7 @@ public sealed partial class FruDarklitDragonsongScenario : IScenario
     {
         var helper = Spawn(FruConstants.BNpcBaseId.Helper, Ct.UsurperName, position);
         if (direction is { } dir) helper?.SetRotation(MathF.Atan2(dir.X, dir.Z));
-        helper?.Cast(action, targetId: target?.GameObjectId, castSeconds: 0);
+        helper?.Cast(action, target: target, castSeconds: 0);
         if (helper != null) world.Events.Add(3, helper.Despawn);
     }
     private void Status(SimCharacter m, ushort id, float end, int param = 1)
@@ -255,7 +256,7 @@ public sealed partial class FruDarklitDragonsongScenario : IScenario
         jumpStart = oracle.Position; var offset = position - jumpStart;
         jumpEnd = offset.Length() <= 15 / 2.358f ? jumpStart : position - Vector3.Normalize(offset) * (15 / 2.358f);
         jumpTime = world.Events.Elapsed; jumping = true;
-        oracle.Cast(action, targetId: target!.GameObjectId, targetLocation: position, castSeconds: 0);
+        oracle.Cast(action, target: target, targetLocation: position, castSeconds: 0);
     }
     private void ResolveWaterAndWing()
     {

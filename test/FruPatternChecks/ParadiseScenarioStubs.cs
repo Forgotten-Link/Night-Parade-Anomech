@@ -112,5 +112,6 @@ namespace AnoMech.Scenarios.Fru
         public static IPhase P4 { get; } = new StubPhase();
         public static IPhase P3 { get; } = new StubPhase();
         public static IPhase P2 { get; } = new StubPhase();
+        public static IPhase P1 { get; } = new StubPhase();
     }
 }

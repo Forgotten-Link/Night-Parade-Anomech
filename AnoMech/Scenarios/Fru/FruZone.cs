@@ -9,6 +9,7 @@ namespace AnoMech.Scenarios.Fru;
 public sealed class FruZone : IZone
 {
     public static readonly FruZone Instance = new();
+    public static readonly Phase P1 = new(Instance, "P1", WeatherId.Fatebreaker, BgmId.Fatebreaker, InitP1Arena);
     public static readonly Phase P2 = new(Instance, "P2", 105, BgmId.Usurper, InitP2Arena);
     public static readonly Phase P3 = new(Instance, "P3", 106, BgmId.Oracle, InitP3Arena);
     public static readonly Phase P4 = new(Instance, "P4", 106, BgmId.OracleAndUsurper, InitP4Arena);
@@ -22,6 +23,9 @@ public sealed class FruZone : IZone
 
     public IReadOnlyList<WaymarkLayout> WaymarkPresets { get; } =
         [new WaymarkLayout("FRU PF - Inner Circle", FruUtils.FruWaymarks)];
+
+    public void RunClientSetup(SimWorld world)
+        => SimCharacter.ControlLockingStatuses.Add(FallOfFaith.FallOfFaithConstants.FloatingFetters);
 
     public void Run(SimWorld world)
     {
@@ -41,6 +45,13 @@ public sealed class FruZone : IZone
         // stage4_type2 state. Hourglasses and the fragment are owned by CT.
         for (byte slot = 0; slot < MapEffect.SlotCount; slot++)
             world.Map.AddEffect(slot == 40 ? 0x00020001u : MapEffect.Hide, slot);
+    });
+
+    // The Fatebreaker floor is the zone's base arena: every managed slot hidden.
+    private static void InitP1Arena(SimWorld world) => world.Events.Add(1f, () =>
+    {
+        for (byte slot = 0; slot < MapEffect.SlotCount; slot++)
+            world.Map.AddEffect(MapEffect.Hide, slot);
     });
 
     private static void InitP2Arena(SimWorld world) => world.Events.Add(1f, () =>

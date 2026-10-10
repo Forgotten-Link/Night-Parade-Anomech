@@ -8,12 +8,16 @@ public static class FruConstants
 
     public static class WeatherId
     {
+        // TerritoryType 1238's WeatherRate (0) only rolls weather 2, so it's the duty's entry (P1) weather.
+        public const byte Fatebreaker = 2;
         // n4gw's combat background uses bg6_1; weather 1 enables the victory scene.
         public const byte Pandora = 108;
     }
 
     public static class BgmId
     {
+        // The duty's own starting track (InstanceContent BGM), music/ex5/BGM_EX5_Ban_13.scd.
+        public const ushort Fatebreaker = 20134;
         // Return to Oblivion, music/ex3/BGM_EX3_Raid_08.scd.
         public const ushort Usurper = 759;
         // The Extreme (Shadowbringers), music/ex3/BGM_EX3_Raid_12.scd.

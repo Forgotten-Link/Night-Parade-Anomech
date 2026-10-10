@@ -18,8 +18,8 @@ internal sealed class DiamondDustPattern(int firstIcicle, bool supportsMarked, b
     public bool Stillness { get; } = stillness;
     public Vector3 ReflectionPosition => Point(reflectionOctant, 12);
     public Vector3 GazePosition => Point(gazeOctant, 19);
-    public static DiamondDustPattern Randomize() => new(Random.Shared.Next(4), Random.Shared.Next(2) == 0,
-        Random.Shared.Next(2) == 0, Random.Shared.Next(8), Random.Shared.Next(2) == 0, Random.Shared.Next(8));
+    public static DiamondDustPattern Randomize(Random random) => new(random.Next(4), random.Next(2) == 0,
+        random.Next(2) == 0, random.Next(8), random.Next(2) == 0, random.Next(8));
     public bool Marked(PartyRole role) => ((int)role < 4) == supportsMarked;
     public static bool GroupOne(PartyRole role) => ((int)role & 1) == 0;
     public static Vector3 Point(float octant, float radius) => new(MathF.Sin(octant * MathF.PI / 4) * radius, 0, -MathF.Cos(octant * MathF.PI / 4) * radius);

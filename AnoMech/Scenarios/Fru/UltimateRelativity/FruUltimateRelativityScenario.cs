@@ -12,6 +12,7 @@ namespace AnoMech.Scenarios.Fru.UltimateRelativity;
 public sealed class FruUltimateRelativityScenario : IScenario
 {
     public string Name => "Ultimate Relativity";
+    public bool SupportsMultiplayer => true;
     public float Duration => EndTime;
     public IPhase Phase => FruZone.P3;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new UltimateRelativityAi()];
@@ -28,10 +29,10 @@ public sealed class FruUltimateRelativityScenario : IScenario
     private readonly Dictionary<PartyRole, Vector3> rewinds = [];
     private readonly Dictionary<(PartyRole Role, ushort Status), float> deadlines = [];
     private bool running;
-    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, UltimateRelativityPattern.Random(Random.Shared));
+    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, UltimateRelativityPattern.Random(FruUtils.Random(worldParam)));
     internal void Run(SimWorld worldParam, UltimateRelativityPattern chosen)
     {
-        world = worldParam; damage = new(world.Party); pattern = chosen; running = true;
+        world = worldParam; damage = new(); pattern = chosen; running = true;
         oracle = null; Array.Clear(hourglasses); Array.Clear(lasers); Array.Clear(laserDirections);
         owned.Clear(); tethers.Clear(); markers[0].Clear(); markers[1].Clear(); rewinds.Clear(); deadlines.Clear();
         At(0.5f, () => { oracle = Spawn(Oracle, OracleName, Vector3.Zero, true); if (oracle == null) Finish(); });
@@ -81,16 +82,15 @@ public sealed class FruUltimateRelativityScenario : IScenario
                 var offset = position - m!.Position;
                 if (offset.LengthSquared() < 0.0001f) continue;
                 var source = m.Position - offset;
-                if (m is SimPlayer player) player.Knockback(source, offset.Length(), offset.Length() / 0.4f);
-                else if (m is SimPartyNpc bot) bot.Knockback(source, offset.Length(), offset.Length() / 0.4f);
+                (m as ISimPartyMember)?.Knockback(source, offset.Length(), offset.Length() / 0.4f);
             }
         });
         At(FinalTime, () => { ResolveFinal(); Unlock(); });
-        At(55.8f, () => oracle?.Cast(ShellCast, targetId: world.Party.Get(pattern.ShellTarget)?.GameObjectId, castSeconds: 2.8f));
+        At(55.8f, () => oracle?.Cast(ShellCast, target: world.Party.Get(pattern.ShellTarget), castSeconds: 2.8f));
         At(ShellTime, () => {
             var target = world.Party.Get(pattern.ShellTarget);
             if (!target.IsAlive()) { FailParty(ShellHit, "missing Shell Crusher target"); return; }
-            oracle?.Cast(ShellHit, targetId: target!.GameObjectId, targetLocation: target.Position, castSeconds: 0);
+            oracle?.Cast(ShellHit, target: target, targetLocation: target!.Position, castSeconds: 0);
             Stack(target!, 6, 8, 8, ShellHit, "Shell Crusher", Members());
         });
         At(Duration, Finish);
@@ -104,7 +104,7 @@ public sealed class FruUltimateRelativityScenario : IScenario
     {
         var actor = world.SpawnEnemy(new EnemySpawnConfig(id, NameId: name, Level: FruConstants.Level,
             Targetable: targetable, EnemyList: targetable ? EnemyListMode.Always : EnemyListMode.Never,
-            Placement: new(position, MathF.PI)));
+            Visibility: FruUtils.SpawnVisibilityOf(id), Placement: new(position, MathF.PI)));
         if (actor != null) Own(actor);
         return actor;
     }
@@ -114,7 +114,7 @@ public sealed class FruUltimateRelativityScenario : IScenario
     private void Effect(uint action, Vector3 position, SimCharacter? target = null)
     {
         var helper = Spawn(FruConstants.BNpcBaseId.Helper, OracleName, position);
-        helper?.Cast(action, targetLocation: position, targetId: target?.GameObjectId, castSeconds: 0);
+        helper?.Cast(action, targetLocation: position, target: target, castSeconds: 0);
         // Return's authored trace needs its source alive beyond an ordinary hit.
         if (helper != null && action is not Return and not ReturnIV) world.Events.Add(3, helper.Despawn);
     }

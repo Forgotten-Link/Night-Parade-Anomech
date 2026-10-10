@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 using AnoMech.Core.Game;
 using AnoMech.Core.Game.Party;
+using AnoMech.Scenarios;
 
 namespace AnoMech.Core.SimObjects;
 
@@ -18,8 +19,6 @@ namespace AnoMech.Core.SimObjects;
 // SimParty.Empty sentinel doesn't accidentally register one at static init.
 public sealed class SimParty : ISimObject
 {
-    private static Random rnd = new();
-    
     public static readonly SimParty Empty = new();
 
     private readonly SimCharacter?[] slots = new SimCharacter?[8];
@@ -27,6 +26,25 @@ public sealed class SimParty : ISimObject
     public SimParty() { Find = new CharacterFind<SimCharacter>(ActiveMembers); }
 
     public CharacterFind<SimCharacter> Find { get; }
+
+    public LimitBreakGauge LimitBreak { get; } = new();
+
+    // The bot in `role` casts its job's limit break at the level the gauge allows, emptying it.
+    // False if the slot is not a live bot (humans press their own), no bar is filled, or the job
+    // has none at that level.
+    public bool UseLimitBreak(PartyRole role)
+    {
+        if (Get(role) is not SimPartyNpc bot) return false;
+        var level = LimitBreak.FilledBars;
+        if (level == 0)
+        {
+            DiagnosticLog.Info($"[SimParty] {role} limit break skipped: no bar is filled.");
+            return false;
+        }
+        if (!bot.UseLimitBreak(level)) return false;
+        LimitBreak.Spend();
+        return true;
+    }
 
     public SimCharacter? Get(int roleId)
         => roleId >= 0 && roleId < slots.Length ? slots[roleId] : null;
@@ -55,21 +73,17 @@ public sealed class SimParty : ISimObject
 
     // Kills every alive member with the given cause. Raidwide wipe primitive
     // used by mechanics whose failure is unsurvivable.
+    public void WipeAllPlayers(uint actionId, string? explanation = null)
+        => ForEachActive(m => { if (m.IsAlive()) m.Die(actionId, explanation); });
+
+    [Obsolete("Name the action: WipeAllPlayers(actionId, explanation).")]
     public void WipeAllPlayers(string cause)
         => ForEachActive(m => { if (m.IsAlive()) m.Die(cause); });
 
-    // Status a member carries while temporarily invulnerable (GiveInvuln). Game.Kill
-    // swallows any death of a member holding it — every death path routes through Kill,
-    // so this covers DamageSolver and direct .Die() alike. Hallowed Ground (409): a
-    // recognizable buff icon that renders on doppels; the death gate reads it sim-side
-    // (HasStatus), so it works on the local player too even though the icon doesn't show.
-    public const ushort InvulnStatusId = 409;
-
-    // Makes `role` immune to death for `seconds` (default 10). Backed by InvulnStatusId,
-    // so it auto-expires and Game.Kill swallows any death — from DamageSolver or a direct
-    // .Die() — while it's held. No-op if the slot is empty.
-    public void GiveInvuln(PartyRole role, float seconds = 10f)
-        => Get(role)?.AddStatus(InvulnStatusId, seconds);
+    // Slots nothing real presses buttons for: a bot, or the local player under DebugBotControl
+    // (which drives movement only).
+    public bool IsBotDriven(SimCharacter member)
+        => (!ReferenceEquals(member, Player) || DebugBotControl.Enabled) && member is not SimNetworkPuppet;
 
     // Raidwide knockback: pushes every active slot `distance` units away from
     // `source`. Each slot resolves its own direction from its current position.
@@ -84,6 +98,25 @@ public sealed class SimParty : ISimObject
         if (!KnockbackLookup.TryGet(knockbackId, out var distance, out var speed))
             return;
         ForEachActive(m => (m as ISimPartyMember)?.Knockback(source, distance, speed));
+    }
+
+    // Only slots within `radius` of `source` are pushed. `exclude` is the stack holder when
+    // `source` is their own position: Placement.Face keeps a co-located mover's current rotation,
+    // so they would still be flung along whatever they last faced. Movement only; the caller
+    // casts the hit reaction first (its movement plays out over the next 0.7s).
+    public void Knockback(Vector3 source, uint knockbackId, float radius, SimCharacter? exclude = null)
+    {
+        if (!KnockbackLookup.TryGet(knockbackId, out var distance, out var speed))
+            return;
+        var radiusSq = radius * radius;
+        ForEachActive(m =>
+        {
+            if (ReferenceEquals(m, exclude)) return;
+            var dx = m.Position.X - source.X;
+            var dz = m.Position.Z - source.Z;
+            if (dx * dx + dz * dz <= radiusSq)
+                (m as ISimPartyMember)?.Knockback(source, distance, speed);
+        });
     }
 
     internal IEnumerable<SimCharacter> ActiveMembers()
@@ -141,10 +174,19 @@ public sealed class SimParty : ISimObject
                 slots[i] = null;
             }
         }
+        LimitBreak.Tick();
+    }
+
+    // The whole party, the local player included, is in combat for the whole run.
+    internal void SetInCombat(bool inCombat)
+    {
+        foreach (var member in AllMembers()) member.ActorControl.SetInCombat(inCombat);
     }
 
     public void Despawn()
     {
+        SetInCombat(false);
+        LimitBreak.Restore();
         for (int i = 0; i < slots.Length; i++)
         {
             slots[i]?.Despawn();
@@ -152,8 +194,8 @@ public sealed class SimParty : ISimObject
         }
     }
 
-    public SimCharacter? GetRandom()
+    public SimCharacter? GetRandom(Rng rng)
     {
-        return Get(rnd.Next(8));
+        return Get(rng.Next(8));
     }
 }

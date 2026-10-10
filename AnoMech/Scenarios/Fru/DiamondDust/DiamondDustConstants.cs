@@ -10,7 +10,11 @@ internal static class DiamondDustConstants
     public const uint Gaze = 40185, Frost = 40184;
     public const uint StillnessFirst = 40193, StillnessSecond = 40196, SilenceFirst = 40194, SilenceSecond = 40195;
     public const uint StillnessVoice = 8205521, SilenceVoice = 8205522;
+    // UNVERIFIED which clip is which: the kick shouts are the voice-only pair just before
+    // Stillness/Silence, assumed to follow action order the way Stillness/Silence do.
+    public const uint AxeVoice = 8205519, ScytheVoice = 8205520;
     public const ushort ThinIce = 911;
+    public const ushort WarpEndTimeline = 7747;
     // Native Thin Ice Param encodes slide distance in tenths of a yalm.
     public const ushort ThinIceDistanceParam = 320;
     public const uint FreezeFloor = 0x00010020, ThawFloor = 0x00010040;

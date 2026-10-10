@@ -13,6 +13,7 @@ namespace AnoMech.Scenarios.Fru.FulgentBlade;
 public sealed class FruFulgentBladeScenario : IScenario
 {
     public string Name => "Fulgent Blade";
+    public bool SupportsMultiplayer => true;
     public float Duration => 43.5f;
     public IPhase Phase => FruZone.P5;
     public bool SupportsSolo => true;
@@ -35,10 +36,10 @@ public sealed class FruFulgentBladeScenario : IScenario
     {
         world = worldParam;
         party = world.Party;
-        damage = new DamageSolver(party);
+        damage = new DamageSolver();
         solo = selectedAi is null;
         pandora = null;
-        pattern = new FulgentBladePattern(Random.Shared.Next(4), Random.Shared.Next(4), Random.Shared.Next(2) == 0);
+        pattern = new FulgentBladePattern(world.Rng.Next(4), world.Rng.Next(4), world.Rng.Next(2) == 0);
         Array.Clear(waveHelpers);
         Array.Clear(initialSeams);
         Array.Clear(stackHelpers);
@@ -108,7 +109,7 @@ public sealed class FruFulgentBladeScenario : IScenario
         Level: Level,
         Targetable: false,
         EnemyList: EnemyListMode.Never,
-        IsVisible: true,
+        Visibility: SpawnVisibility.InvisibleHelper,
         Placement: placement));
 
     private void BeginExalineGroup(int group)
@@ -174,8 +175,7 @@ public sealed class FruFulgentBladeScenario : IScenario
             Level: Level,
             Targetable: true,
             EnemyList: EnemyListMode.Always,
-            IsVisible: true,
-            Placement: new Placement(Vector3.Zero, 0f)));
+                Placement: new Placement(Vector3.Zero, 0f)));
         // Follow is retained through casts, but Movement respects the boss's
         // cast/animation lock and only resumes chasing after it ends.
         pandora?.SetTarget(MainTank, follow: true);
@@ -217,8 +217,8 @@ public sealed class FruFulgentBladeScenario : IScenario
         var leftSide = members.Where(m => Vector3.Dot(m.Position - boss.Position, right) <= 0f).ToArray();
         var rightSide = members.Where(m => Vector3.Dot(m.Position - boss.Position, right) > 0f).ToArray();
         var targets = new List<SimCharacter>();
-        if (leftSide.Length > 0) targets.Add(leftSide[Random.Shared.Next(leftSide.Length)]);
-        if (rightSide.Length > 0) targets.Add(rightSide[Random.Shared.Next(rightSide.Length)]);
+        if (leftSide.Length > 0) targets.Add(leftSide[world.Rng.Next(leftSide.Length)]);
+        if (rightSide.Length > 0) targets.Add(rightSide[world.Rng.Next(rightSide.Length)]);
 
         // Solo practice fills the missing roles before this resolve, so both
         // modes enforce real four-person stacks. Allocation failures must not
@@ -237,7 +237,7 @@ public sealed class FruFulgentBladeScenario : IScenario
             if (helper is { IsActive: true })
             {
                 helper.SetPosition(stack.Target.Position);
-                helper.Cast(action, targetId: stack.Target.GameObjectId, castSeconds: 0f);
+                helper.Cast(action, target: stack.Target, castSeconds: 0f);
             }
             foreach (var member in stack.Members)
             {

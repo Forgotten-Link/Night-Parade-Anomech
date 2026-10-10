@@ -12,6 +12,7 @@ namespace AnoMech.Scenarios.Fru.LightRampant;
 public sealed class FruLightRampantScenario : IScenario
 {
     public string Name => "Light Rampant";
+    public bool SupportsMultiplayer => true;
     public float Duration => 48f;
     public IPhase Phase => FruZone.P2;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new LightRampantAi()];
@@ -25,10 +26,10 @@ public sealed class FruLightRampantScenario : IScenario
     private readonly List<(Vector3 Position, float ArmAt, float EndAt, SimEventObject? Visual)> puddles = [];
     private readonly Dictionary<SimCharacter, Vector3> previous = [];
     private bool running, assigned, cursed;
-    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, LightRampantPattern.Random(Random.Shared));
+    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, LightRampantPattern.Random(FruUtils.Random(worldParam)));
     internal void Run(SimWorld worldParam, LightRampantPattern chosen)
     {
-        world = worldParam; damage = new(world.Party); pattern = chosen;
+        world = worldParam; damage = new(); pattern = chosen;
         owned.Clear(); tethers.Clear(); towers.Clear(); puddles.Clear(); previous.Clear();
         boss = null; running = true; assigned = cursed = false;
         At(0.5f, () => {
@@ -85,7 +86,7 @@ public sealed class FruLightRampantScenario : IScenario
         var actor = world.SpawnEnemy(new EnemySpawnConfig(id, NameId: bossActor ? UsurperName : 0,
             Level: FruConstants.Level, Targetable: bossActor,
             EnemyList: bossActor ? EnemyListMode.OnlyWhenVisible : EnemyListMode.Never,
-            Placement: new(position, 0), ModelCharaId: bossActor ? LightModel : 0));
+            Visibility: FruUtils.SpawnVisibilityOf(id), Placement: new(position, 0), ModelCharaId: bossActor ? LightModel : 0));
         if (actor != null) owned.Add(actor);
         return actor;
     }
@@ -93,7 +94,7 @@ public sealed class FruLightRampantScenario : IScenario
     {
         var helper = Spawn(FruConstants.BNpcBaseId.Helper, position);
         helper?.SetRotation(rotation);
-        helper?.Cast(action, targetLocation: position, targetId: target?.GameObjectId, castSeconds: 0);
+        helper?.Cast(action, targetLocation: position, target: target, castSeconds: 0);
         if (helper != null) world.Events.Add(3, helper.Despawn);
     }
     private void Assign()

@@ -2,77 +2,56 @@ using System;
 using System.Numerics;
 using AnoMech.Core.Game;
 using AnoMech.Core.Game.Party;
-using AnoMech.Core.Native;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
-using FFXIVClientStructs.FFXIV.Client.Game.Object;
+using AnoMech.Core.Native.Interfaces;
+using AnoMech.Core.UserActions;
 
 namespace AnoMech.Core.SimObjects;
 
-public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coordinates), ISimPartyMember
+public sealed class SimPlayer(Coordinates coordinates) : SimCharacter(coordinates), ISimPartyMember
 {
     private const ushort StunStatusId = 896;  // "Down for the Count" (896) — IsPermanent + LockControl variant.
 
-    // The player's HP bar (real bc->Health) is touched only on a scenario KO — dropped to a 1-HP
-    // sliver here (from OnKilled on a real death, and from Game.Kill for the godmode preview),
-    // restored in RestoreHpBar (revive / godmode heal-back).
+    // The real HP bar is only touched on a scenario KO (a 1-HP sliver), restored in RestoreHpBar.
     public void DropHpBar()
     {
-        var bc = BattleCharaPtr;
-        if (bc != null) bc->Health = 1;
+        if (Proxy is { Exists: true } chara) chara.Health = 1;
     }
 
     public void RestoreHpBar()
     {
-        var bc = BattleCharaPtr;
-        if (bc != null && bc->Health < bc->MaxHealth) bc->Health = bc->MaxHealth;
+        if (Proxy is { Exists: true } chara && chara.Health < chara.MaxHealth) chara.Health = chara.MaxHealth;
+    }
+
+    // Real native MaxHealth before it was overridden; null if inactive.
+    private uint? realMaxHealth;
+
+    // Host-authoritative HP for a peer's own character; the real MaxHealth is captured once so
+    // Despawn restores it no matter what a host sent.
+    public void ApplyNetworkHp(uint currentHp, uint maxHp)
+    {
+        if (Proxy is not { Exists: true } chara || maxHp == 0) return;
+        realMaxHealth ??= chara.MaxHealth;
+        chara.MaxHealth = maxHp;
+        chara.Health = Math.Min(currentHp, maxHp);
+    }
+
+    // Must run before RestoreHpBar: restore MaxHealth first, then clamp Health down.
+    public void RestoreRealMaxHealth()
+    {
+        if (realMaxHealth is not { } original) return;
+        if (Proxy is { Exists: true } chara)
+        {
+            chara.MaxHealth = original;
+            if (chara.Health > original) chara.Health = original;
+        }
+        realMaxHealth = null;
     }
 
     public PartyRole Role { get; set; }
     public bool Dead { get; private set; }
-    private bool mechanicInputLock;
+
     private const ushort SprintStatusId = 50;
-    private const ushort SprintSpeedParam = 30;
-    private const float SprintDuration = 10f; // Combat duration for scenario practice.
-    private float sprintRemaining;
-
-    internal void StartSprint()
-    {
-        if (Dead || mechanicInputLock || BattleCharaPtr == null) return;
-        sprintRemaining = SprintDuration;
-        ApplySprint();
-    }
-
-    private void ApplySprint()
-    {
-        var bc = BattleCharaPtr;
-        if (bc == null) return;
-        var sm = &bc->StatusManager;
-        var slot = sm->GetStatusIndex(SprintStatusId);
-        if (slot < 0)
-            for (var i = 0; i < sm->Status.Length; i++)
-                if (sm->Status[i].StatusId == 0) { slot = i; break; }
-        if (slot < 0) return;
-        // Direct status-slot writes only draw an icon. Refresh the native flags
-        // as well so status 50's movement-speed effect actually takes effect.
-        sm->SetStatus(slot, SprintStatusId, sprintRemaining, SprintSpeedParam, bc->GetGameObjectId(), refreshFlags: true);
-        if (sm->NumValidStatuses <= slot) sm->NumValidStatuses = (byte)(slot + 1);
-    }
-
-    private void TickSprint(float deltaSeconds)
-    {
-        if (sprintRemaining <= 0) return;
-        sprintRemaining = MathF.Max(0, sprintRemaining - deltaSeconds);
-        if (sprintRemaining == 0) Statuses.Remove((Character*)BattleCharaPtr, SprintStatusId);
-        else ApplySprint();
-    }
-
-    private void ClearSprint()
-    {
-        // Only remove a Sprint owned by this simulation.
-        if (sprintRemaining <= 0) return;
-        sprintRemaining = 0;
-        Statuses.Remove((Character*)BattleCharaPtr, SprintStatusId);
-    }
+    private bool mechanicInputLock;
 
     // Mechanic-owned freeze (e.g. CT's Return), cleared unconditionally on reset.
     public void SetMechanicInputLock(bool locked)
@@ -81,38 +60,50 @@ public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coo
         SyncInputLock();
     }
 
-    // Player activity for stillness/movement mechanics (e.g. Pyretic, Acceleration Bomb).
-    // IsMoving = locomotion input (the engine's own RMIWalk movement sample, the same signal
-    // bossmod keys off) OR jumping OR using any action — all three "break" a don't-move mechanic
-    // in real FFXIV, so all three count here. IsActing = IsMoving OR auto-attacking, i.e. the
-    // strictly-broader "is the player doing something" trigger. Both are re-sampled each tick and
-    // forced false while KO'd. Scenarios read these on Party.Player at the mechanic's resolve time.
+    // For stillness/movement mechanics: IsMoving = movement input, a jump, any action, or an
+    // in-flight debug-bot MoveTo; IsActing also counts auto-attacks. Forced false while KO'd.
     public bool IsMoving { get; private set; }
     public bool IsActing { get; private set; }
 
-    internal override BattleChara* BattleCharaPtr => (BattleChara*)(Plugin.ObjectTable.LocalPlayer?.Address ?? 0);
+    internal override IBattleCharaProxy Proxy => Natives.BattleCharas.LocalPlayer;
 
     private protected override PlayerMovement Movement => field ??= new PlayerMovement(this);
 
+    public void UseSprint(float duration)
+    {
+        if (DebugBotControl.Enabled && !Dead && !ActionsLocked) SprintHandler.Apply(this, duration);
+    }
+
     public void Knockback(Vector3 source, float distance, float speed) => Movement.Knockback(source, distance, speed);
 
-    // The player's input lock is a pure function of its own state, re-derived
-    // every tick: movement is frozen while KO'd or being force-slid by a
-    // knockback, or under a mechanic freeze; actions are blocked while KO'd or
-    // mechanic-frozen. base.Tick advances Movement
-    // first, so a slide that arrives this frame has already cleared IsMoving.
+    public void PushInDirection(float heading, float distance, float speed) => Movement.PushInDirection(heading, distance, speed);
+
+    public void PushInDirectionEased(float heading, float distance, float durationSeconds) => Movement.PushInDirectionEased(heading, distance, durationSeconds);
+
+    // The input lock is re-derived every tick from Dead/Movement/statuses.
     public override void Tick(float deltaSeconds)
     {
         base.Tick(deltaSeconds);
-        TickSprint(deltaSeconds);
+        if (HasStatus(SprintStatusId)) Proxy.RefreshStatusFlags(SprintStatusId);
         SampleActivity();
         SyncInputLock();
     }
 
+    // The client's own prediction runs the whole cast; this only counts it as activity for
+    // stillness mechanics.
+    public bool IsLimitBreaking
+    {
+        get
+        {
+            var chara = Proxy;
+            return chara.IsCasting && LimitBreakHandler.IsLimitBreak(chara.CastActionId);
+        }
+    }
+
     private void SampleActivity()
     {
-        var hooks = Plugin.PlayerInputHooks;
-        // Drain the action latch every frame — even while dead — so a stale press can't carry over.
+        var hooks = Natives.PlayerInput;
+        // Drained every frame, even while dead, so a stale press can't carry over.
         var actedThisFrame = hooks.PollActionUsed();
         if (Dead)
         {
@@ -120,16 +111,18 @@ public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coo
             IsActing = false;
             return;
         }
-        IsMoving = hooks.MovementInputActive || actedThisFrame || hooks.IsJumping;
-        IsActing = IsMoving || hooks.IsAutoAttacking;
+        IsMoving = hooks.MovementInputActive || actedThisFrame || hooks.IsJumping || Movement.IsMoving;
+        // A limit break casts for seconds, and an Acceleration Bomb landing in that window has
+        // caught the player acting, exactly as it would in the fight.
+        IsActing = IsMoving || hooks.IsAutoAttacking || IsLimitBreaking;
     }
 
     public void OnKilled()
     {
         Dead = true;
-        ClearSprint();
+        RemoveStatus(SprintStatusId);
         StopMoving();
-        DropHpBar(); // real-death bar drop (bots do the same in their own OnKilled); godmode skips this path
+        DropHpBar(); // godmode preview skips this path
         AddStatus(StunStatusId);
         this.PlayKoActionTimeline();
         SyncInputLock(); // engage the lock now, not one frame later
@@ -138,28 +131,28 @@ public sealed unsafe class SimPlayer(Coordinates coordinates) : SimCharacter(coo
     public override void Despawn()
     {
         mechanicInputLock = false;
-        ClearSprint();
         base.Despawn();
         StopMoving();
-        // Undo any KO bar drop (no-op if already full). Unconditional so it also covers a godmode
-        // preview drop, where Dead is never set and a pending heal on Game.Events may be cleared by reset.
+        // Order matters; see RestoreRealMaxHealth.
+        RestoreRealMaxHealth();
+        // Unconditional: also covers a godmode preview drop, where Dead is never set.
         RestoreHpBar();
+        // PartyHud's sim shield would otherwise stay on the real character's HP bar.
+        Proxy.ClearShield();
         if (Dead)
         {
-            ResetActionTimeline();
-            PlayActionTimeline(77); // revive
+            ResetActionTimelineNative();
+            PlayActionTimelineNative(77); // revive
             Dead = false;
         }
-        // No SimPlayer ticks between a reset and the next scenario, so the lock
-        // must be cleared here — otherwise a die-then-reset leaves the player
-        // input-locked in the inn.
+        // Nothing ticks between a reset and the next scenario, so the lock must clear here.
         SyncInputLock();
     }
 
     private void SyncInputLock()
     {
-        var hooks = Plugin.PlayerInputHooks;
-        hooks.ZeroMovement = Dead || mechanicInputLock || Movement.IsMoving;
-        hooks.DisableAllActions = Dead || mechanicInputLock;
+        var hooks = Natives.PlayerInput;
+        hooks.ZeroMovement = Dead || mechanicInputLock || Movement.IsMoving || MovementLocked;
+        hooks.DisableAllActions = Dead || mechanicInputLock || ActionsLocked;
     }
 }

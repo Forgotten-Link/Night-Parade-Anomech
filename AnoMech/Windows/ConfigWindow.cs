@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Utility;
 using Dalamud.Interface.Windowing;
 
 namespace AnoMech.Windows;
@@ -14,7 +15,7 @@ public class ConfigWindow : Window, IDisposable
         Flags = ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar |
                 ImGuiWindowFlags.NoScrollWithMouse;
 
-        Size = new Vector2(380, 280);
+        Size = new Vector2(380, 310) * ImGuiHelpers.GlobalScale;
         SizeCondition = ImGuiCond.Always;
 
         configuration = plugin.Configuration;
@@ -36,6 +37,42 @@ public class ConfigWindow : Window, IDisposable
         {
             configuration.SuppressBgm = suppressBgm;
             configuration.Save();
+        }
+
+        var resultMarks = configuration.EnableMechanicResultMarks;
+        if (ImGui.Checkbox("Show mechanic success/failure marks", ref resultMarks))
+        {
+            configuration.EnableMechanicResultMarks = resultMarks;
+            configuration.Save();
+        }
+
+        var userActions = configuration.EnableUserActions;
+        if (ImGui.Checkbox("Resolve your own actions", ref userActions))
+        {
+            configuration.EnableUserActions = userActions;
+            configuration.Save();
+            if (userActions) Plugin.UserActions.Enable();
+            else Plugin.UserActions.Disable();
+        }
+
+        if (configuration.EnableUserActions)
+        {
+            var threshold = configuration.CastInterruptThreshold;
+            ImGui.SetNextItemWidth(90 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputFloat("Slidecast window (s)", ref threshold, 0.05f, 0.1f, "%.2f"))
+            {
+                configuration.CastInterruptThreshold = Math.Clamp(threshold, 0f, 5f);
+                configuration.Save();
+            }
+
+            var tankMitigation = configuration.EnableTankMitigation;
+            if (ImGui.Checkbox("Require tank mitigation", ref tankMitigation))
+            {
+                configuration.EnableTankMitigation = tankMitigation;
+                configuration.Save();
+            }
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Some tankbusters (depending on scenario support) will check your mitigation.");
         }
 
         ImGui.Separator();

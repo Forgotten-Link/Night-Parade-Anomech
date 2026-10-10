@@ -27,9 +27,11 @@ internal static class DiamondDustChecks
                     Check(!member.Dead, $"{first}/{marked}/{axe}/{reflection}/{stillness}/{fps} at {world.Events.Elapsed:F2}: {member.Role}: {string.Join(", ", member.Damage.Where(d => d.Lethal).Select(d => d.Cause))} pos {member.Position}");
             }
             Check(world.Spawned.All(s => !s.IsActive), "All native actors, puddles and ice are released on completion");
-            var voice = world.Spawned.OfType<SimVoiceLine>().Single();
-            Check(voice.VoiceId == (stillness ? 8205521u : 8205522u)
-                && MathF.Abs(voice.StartTime - ComboTime) <= 1.1f / fps,
+            var voices = world.Spawned.OfType<SimVoiceLine>().ToArray();
+            Check(voices.Length == 2, "Exactly two native voice lines play");
+            Check(voices.Count(v => v.VoiceId == (axe ? 8205519u : 8205520u) && MathF.Abs(v.StartTime - 14.9f) <= 1.1f / fps) == 1,
+                "Correct native voice plays exactly once at the Axe/Scythe Kick cast");
+            Check(voices.Count(v => v.VoiceId == (stillness ? 8205521u : 8205522u) && MathF.Abs(v.StartTime - ComboTime) <= 1.1f / fps) == 1,
                 "Correct native voice plays exactly once at the Twin combo cast");
             Check(world.Party.Members.All(m => !m.HasStatus(ThinIce)), "Thin Ice removed on completion");
             runs++;

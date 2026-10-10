@@ -3,7 +3,8 @@
 
   <PropertyGroup>
     <Authors>Anomek</Authors>
-    <Version>0.3.12.0</Version>
+    <Version>0.4.2.101</Version>
+    <AssemblyName>NightParadeAnoMech</AssemblyName>
     <Description>Simulate ultimate raid mechanics solo client-side</Description>
     <RootNamespace>AnoMech</RootNamespace>
     <PackageProjectUrl>https://github.com/anomek/AnoMech</PackageProjectUrl>
@@ -12,4 +13,19 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../AnoMech.Relay/AnoMech.Relay.csproj" />
+    <InternalsVisibleTo Include="AnoMech.Tests" />
+    <AdditionalFiles Include="BannedSymbols.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.BannedApiAnalyzers" Version="5.6.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="NAudio.Core" Version="2.2.1" />
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <PackageReference Include="NVorbis" Version="0.10.5" />
+  </ItemGroup>
 </Project>

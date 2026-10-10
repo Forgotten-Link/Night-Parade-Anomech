@@ -6,9 +6,11 @@ using AnoMech.Scenarios.Fru.Apocalypse;
 using AnoMech.Scenarios.Fru.CrystallizeTime;
 using AnoMech.Scenarios.Fru.DarklitDragonsong;
 using AnoMech.Scenarios.Fru.DiamondDust;
+using AnoMech.Scenarios.Fru.FallOfFaith;
 using AnoMech.Scenarios.Fru.FulgentBlade;
 using AnoMech.Scenarios.Fru.LightRampant;
 using AnoMech.Scenarios.Fru.ParadiseRegained;
+using AnoMech.Scenarios.Fru.Towers;
 using AnoMech.Scenarios.Fru.UltimateRelativity;
 
 namespace AnoMech.Scenarios.Fru;
@@ -22,7 +24,8 @@ public sealed class FruAllScenario(IReadOnlyList<IScenario> scenarios) : IScenar
             new FruUltimateRelativityScenario(), new FruApocalypseScenario(),
             new FruDarklitDragonsongScenario(), new FruCrystallizeTimeScenario(),
             new FruFulgentBladeScenario(), new FruParadiseRegainedScenario()];
-        return [new FruAllScenario(ordered), .. ordered];
+        // The P1 mechanics stay standalone entries: All starts at P2.
+        return [new FruFallOfFaithScenario(), new FruTowersScenario(), new FruAllScenario(ordered), .. ordered];
     }
     public string Name => "All";
     public IPhase Phase => FruZone.P2;

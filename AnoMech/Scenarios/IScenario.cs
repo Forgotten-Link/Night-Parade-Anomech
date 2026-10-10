@@ -15,9 +15,16 @@ public interface IScenario
 
     bool SupportsSolo => false;
 
+    // Core replication works for any scenario; this also needs the debug-bot AI replay plumbing
+    // (IMultiplayerReplayable).
+    bool SupportsMultiplayer => false;
+
     // Selectable strats. Run's selectedAi indexes this (null = solo); region buttons derive
     // from each strat's IScenarioAi.Group.
     IReadOnlyList<IScenarioAi> AiStrats { get; }
+
+    // How far into the phase's track the real fight is when this scenario starts.
+    float BgmSecondsAtStart => 0f;
 
     // Authored cleanup time on the event clock, used by sequential practice.
     // Scenarios without a declared end cannot be included in a sequence.
@@ -25,7 +32,31 @@ public interface IScenario
 
     void Run(SimWorld world, int? selectedAi);
     void Tick(float delta, float elapsed) { }
+
+    // The fight-wide rolls only: one setting the whole sim shares.
     void DrawSettings() { }
+
+    // Mechanic roles a single player carries -- a Limit Cut number, an Accretion, a tether. Not
+    // part of DrawSettings: these are per seat, and mixing them into the fight-wide panel is
+    // what made them hard to read. Drawn in their own dialog instead.
+    bool HasPerPlayerSettings => false;
+    void DrawPerPlayerSettings() { }
+
+    // Stays editable while a multiplayer fight is running, unlike DrawSettings (e.g. a bot
+    // tank's mitigation plan).
+    void DrawMultiplayerSettings() { }
+
+    // The overrides object DrawSettings edits, for the lobby's read-only summary
+    // (ScenarioSettingsSummary); null when there is nothing to configure.
+    object? SettingsOverrides => null;
+
+    // Per-player settings the fight can't produce together (see SettingsConflicts). A start is
+    // refused while this is non-empty, rather than running something the host didn't ask for.
+    IReadOnlyList<string> SettingsConflicts => [];
+
+    // Deterministic instance-progress replay (native DirectorUpdate/AddEffect calls) with no
+    // host-only dependency, so Game.RunScenarioInternal schedules it for a peer too.
+    void RunInstanceEvents(SimWorld world) { }
 }
 
 public interface IScenarioSequence : IScenario

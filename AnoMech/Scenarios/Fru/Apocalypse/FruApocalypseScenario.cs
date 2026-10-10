@@ -13,6 +13,7 @@ namespace AnoMech.Scenarios.Fru.Apocalypse;
 public sealed class FruApocalypseScenario : IScenario
 {
     public string Name => "Apocalypse";
+    public bool SupportsMultiplayer => true;
     public float Duration => 57f;
     public IPhase Phase => FruZone.P3;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new ApocalypseAi()];
@@ -24,11 +25,11 @@ public sealed class FruApocalypseScenario : IScenario
     private Vector3 jumpFrom, jumpTo;
     private SimCharacter? jumpTarget;
     private bool running, jumping;
-    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, ApocalypsePattern.Randomize());
+    public void Run(SimWorld worldParam, int? selectedAi) => Run(worldParam, ApocalypsePattern.Randomize(FruUtils.Random(worldParam)));
     internal void Run(SimWorld worldParam, ApocalypsePattern chosenPattern)
     {
         world = worldParam;
-        damage = new(world.Party);
+        damage = new();
         pattern = chosenPattern;
         oracle = null;
         owned.Clear();
@@ -106,8 +107,7 @@ public sealed class FruApocalypseScenario : IScenario
             foreach (var member in Members())
             {
                 Hit(member, Knockback, "Darkest Dance knockback", false);
-                if (member is SimPartyNpc bot) bot.Knockback(oracle.Position, KnockbackDistance, KnockbackDistance / 0.7f);
-                else if (member is SimPlayer player) player.Knockback(oracle.Position, KnockbackDistance, KnockbackDistance / 0.7f);
+                (member as ISimPartyMember)?.Knockback(oracle.Position, KnockbackDistance, KnockbackDistance / 0.7f);
             }
         });
         CastAt(51.2f, Pulsar, 4.7f);
@@ -122,14 +122,14 @@ public sealed class FruApocalypseScenario : IScenario
     {
         var actor = world.SpawnEnemy(new EnemySpawnConfig(id, NameId: OracleName, Level: FruConstants.Level,
             Targetable: targetable, EnemyList: targetable ? EnemyListMode.Always : EnemyListMode.Never,
-            Placement: new(position, 0)));
+            Visibility: FruUtils.SpawnVisibilityOf(id), Placement: new(position, 0)));
         if (actor != null) owned.Add(actor);
         return actor;
     }
     private void Effect(uint action, Vector3 position, SimCharacter? target = null)
     {
         var helper = Spawn(FruConstants.BNpcBaseId.Helper, position);
-        helper?.Cast(action, targetLocation: position, targetId: target?.GameObjectId, castSeconds: 0);
+        helper?.Cast(action, targetLocation: position, target: target, castSeconds: 0);
         // Retain the source through the authored effect, then release its slot.
         if (helper != null) world.Events.Add(3, helper.Despawn);
     }
@@ -158,10 +158,10 @@ public sealed class FruApocalypseScenario : IScenario
         if (oracle is not { IsActive: true }) return;
         var members = Members();
         if (members.Length == 0) return;
-        var target = members[Random.Shared.Next(members.Length)];
+        var target = members[world.Rng.Next(members.Length)];
         // The native jump/flip effect runs on Oracle; keep the arena-centered
         // anchor for subsequent casts, as in the reference sequence.
-        oracle.Cast(SpiritHit, targetId: target.GameObjectId, castSeconds: 0);
+        oracle.Cast(SpiritHit, target: target, castSeconds: 0);
         foreach (var member in members)
             if (Vector3.Distance(member.Position, target.Position) <= SpiritRadius)
                 Hit(member, SpiritHit, "Spirit Taker spread", member != target);
@@ -186,7 +186,7 @@ public sealed class FruApocalypseScenario : IScenario
         if (target == null) return;
         var position = target.Position;
         jumpTarget = target;
-        oracle.Cast(DanceHit, targetId: target.GameObjectId, castSeconds: 0);
+        oracle.Cast(DanceHit, target: target, castSeconds: 0);
         foreach (var member in members)
             if (Vector3.Distance(member.Position, position) <= DanceRadius)
                 Hit(member, DanceHit, "Darkest Dance farthest tank bait / splash",

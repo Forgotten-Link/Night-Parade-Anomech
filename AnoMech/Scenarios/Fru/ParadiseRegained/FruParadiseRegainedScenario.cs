@@ -13,6 +13,7 @@ namespace AnoMech.Scenarios.Fru.ParadiseRegained;
 public sealed class FruParadiseRegainedScenario : IScenario
 {
     public string Name => "Paradise Regained";
+    public bool SupportsMultiplayer => true;
     public float Duration => PolarizingStrikesPlan.CleanupTime;
     public IPhase Phase => FruZone.P5;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new ParadiseRegainedAi()];
@@ -26,12 +27,12 @@ public sealed class FruParadiseRegainedScenario : IScenario
     private readonly SimMapEffect?[] towers = new SimMapEffect?[3];
 
     public void Run(SimWorld worldParam, int? selectedAi)
-        => Run(worldParam, new ParadiseRegainedPattern(Random.Shared.Next(3), Random.Shared.Next(2) == 0, Random.Shared.Next(2) == 0));
+        => Run(worldParam, new ParadiseRegainedPattern(worldParam.Rng.Next(3), worldParam.Rng.Next(2) == 0, worldParam.Rng.Next(2) == 0));
 
     internal void Run(SimWorld worldParam, ParadiseRegainedPattern chosenPattern)
     {
         world = worldParam;
-        damage = new DamageSolver(world.Party);
+        damage = new DamageSolver();
         pattern = chosenPattern;
         pandora = null;
         busterHelper = null;
@@ -72,6 +73,7 @@ public sealed class FruParadiseRegainedScenario : IScenario
     private SimEnemy? SpawnHelper(Vector3 position)
         => world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId.Helper, NameId: BNpcNameId.Pandora,
             Level: Level, Targetable: false, EnemyList: EnemyListMode.Never,
+            Visibility: SpawnVisibility.InvisibleHelper,
             Placement: new Placement(position, 0f)));
 
     private void FaceTank(PartyRole role)
@@ -112,7 +114,7 @@ public sealed class FruParadiseRegainedScenario : IScenario
             if (wing.BusterTarget is { } bait && busterHelper is { IsActive: true } source)
             {
                 source.SetPosition(wing.BusterPosition);
-                source.Cast(busterAction, targetId: world.Party.Get(bait)?.GameObjectId, castSeconds: 0f);
+                source.Cast(busterAction, target: world.Party.Get(bait), castSeconds: 0f);
             }
             foreach (var role in wing.CleaveTargets)
                 Hit(role, cleaveAction, "wing cleave / tank swap", role != ParadiseRegainedPattern.CleaveTank(index));

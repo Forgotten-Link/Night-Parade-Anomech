@@ -1,7 +1,5 @@
 using System;
 using System.Numerics;
-using AnoMech.Core.Native;
-using FFXIVClientStructs.FFXIV.Client.Game.Character;
 
 namespace AnoMech.Core.SimObjects;
 
@@ -25,7 +23,7 @@ namespace AnoMech.Core.SimObjects;
 //
 // Distance / endpoint-death break logic lives in the owning scenario — SimTether
 // only renders the visual and ticks expiry.
-public sealed unsafe class SimTether : ISimObject
+public sealed class SimTether : ISimObject
 {
     private const byte Slot = 0;
 
@@ -69,11 +67,17 @@ public sealed unsafe class SimTether : ISimObject
         this.duration = duration;
 
         // Seed both ends. At least one end is Fixed (enforced by the SimWorld.Tether
-        // overload set), so resolving the partner first hands the dynamic end a
-        // stable reference: anchor → dynamic source → settle the anchor again.
-        currentTarget = to.Resolve(null, null, ctx);
-        currentSource = from.Resolve(null, currentTarget, ctx);
-        currentTarget = to.Resolve(currentTarget, currentSource, ctx);
+        // overload set); seeding it first hands the dynamic end a stable reference.
+        if (from is FixedEnd)
+        {
+            currentSource = from.Resolve(null, null, ctx);
+            currentTarget = to.Resolve(null, currentSource, ctx);
+        }
+        else
+        {
+            currentTarget = to.Resolve(null, null, ctx);
+            currentSource = from.Resolve(null, currentTarget, ctx);
+        }
 
         CreateVfx();
         if (debuffStatusId != 0 && duration > 0f)
@@ -133,8 +137,11 @@ public sealed unsafe class SimTether : ISimObject
         {
             if (conditionalStatus.Condition(this))
             {
-                currentSource?.AddStatus(conditionalStatus.StatusId);
-                currentTarget?.AddStatus(conditionalStatus.StatusId);
+                // Pinned at 1 stack (not the AddStatus default of "add one more") -- this runs
+                // every tick the condition holds, so the additive default would pile on a new
+                // stack per tick instead of just holding the debuff present.
+                currentSource?.AddStatus(conditionalStatus.StatusId, stacks: 1, overrideStacks: true);
+                currentTarget?.AddStatus(conditionalStatus.StatusId, stacks: 1, overrideStacks: true);
             }
             else
             {
@@ -169,7 +176,7 @@ public sealed unsafe class SimTether : ISimObject
     private void CreateVfx()
     {
         if (currentSource != null && currentTarget != null)
-            VfxFunctions.SetTether((Character*)currentSource.BattleCharaPtr, Slot, TetherId, currentTarget.GameObjectId, 1);
+            currentSource.ActorControl.SetTether(TetherId, currentTarget.GameObjectId);
     }
 
     // Sentinel-checked clear: only wipe a slot we still own. A chained tether
@@ -177,11 +184,8 @@ public sealed unsafe class SimTether : ISimObject
     // overwritten Vfx.Tethers[slot].Id; we leave that alone.
     private void ClearTetherVfxIfOwned()
     {
-        if (currentSource != null)
-        {
-            var ca = (Character*)currentSource.BattleCharaPtr;
-            if (VfxFunctions.GetTetherId(ca, Slot) == TetherId) VfxFunctions.ClearTether(ca, Slot);
-        }
+        if (currentSource is { Proxy: { } source } owner && source.GetTetherId(Slot) == TetherId)
+            owner.ActorControl.ClearTether();
     }
 
     public SimTether SetConditionalStatus(ushort statusId, Predicate<SimTether> predicate)
