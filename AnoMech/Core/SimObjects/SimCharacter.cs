@@ -110,7 +110,11 @@ public abstract class SimCharacter(Coordinates coordinates) : ISimObject, IPosit
             SetRotation(rotation);
             return;
         }
-        if (Proxy is not { Exists: true }) return;
+        if (Proxy is not { Exists: true })
+        {
+            if (AwaitingNative) Rotation = rotation;
+            return;
+        }
         Rotation = rotation;
         turnTarget = MathUtil.NormalizeRotation(rotation);
     }
