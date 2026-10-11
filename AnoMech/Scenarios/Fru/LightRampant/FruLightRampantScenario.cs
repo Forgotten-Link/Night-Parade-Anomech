@@ -160,7 +160,7 @@ public sealed class FruLightRampantScenario : IScenario
                     Hit(member, LuminousHammer, "Luminous Hammer bait overlap", member != target);
             var visual = world.SpawnEventObject(new EventObjectSpawnConfig { EObjId = HolyPuddle, Placement = new(position, 0), TimelineState = 1 });
             if (visual != null) owned.Add(visual);
-            puddles.Add((position, world.Events.Elapsed + 1.2f, world.Events.Elapsed + 11, visual));
+            puddles.Add((position, world.Events.Elapsed + 2.2f, world.Events.Elapsed + 11, visual));
         }
     }
     private void PowerfulStacks()

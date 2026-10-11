@@ -219,7 +219,7 @@ public sealed partial class FruDiamondDustScenario : IScenario
             var puddle = world.SpawnEventObject(new EventObjectSpawnConfig { EObjId = HolyPuddle, Placement = new(centers[i], 0), TimelineState = 1 });
             if (puddle != null) owned.Add(puddle);
             // Allow the party to leave the freshly placed six-yalm puddle.
-            puddles.Add((centers[i], world.Events.Elapsed + 1.25f));
+            puddles.Add((centers[i], world.Events.Elapsed + 2.2f));
         }
         foreach (var member in members)
             if (centers.All(c => Vector3.Distance(member.Position, c) > 6))
