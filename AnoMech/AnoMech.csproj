@@ -3,7 +3,7 @@
 
   <PropertyGroup>
     <Authors>Anomek</Authors>
-    <Version>0.4.2.101</Version>
+    <Version>0.4.2.102</Version>
     <AssemblyName>NightParadeAnoMech</AssemblyName>
     <Description>Simulate ultimate raid mechanics solo client-side</Description>
     <RootNamespace>AnoMech</RootNamespace>
