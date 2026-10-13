@@ -29,7 +29,13 @@ internal sealed class DiamondDustAi : IScenarioAi
                 if (pattern.SlideDestination(bot.Position, behind, puddles(), prepareNextSlide: recovery) is { } destination)
                     bot.Slide(destination - bot.Position, SlideDistance, SlideSpeed);
             }));
-        Move(15.3f, pattern.KickSpot);
+        foreach (var role in DiamondDustPattern.Roles)
+            if (world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive())
+            {
+                bot.SetPosition(DiamondDustPattern.MarkerSpot(role));
+                bot.Face(Vector3.Zero);
+            }
+        Move(16.3f, pattern.KickSpot);
         Move(KickTime + 0.1f, pattern.StoneSpot);
         Move(StoneTime + 0.1f, pattern.KnockbackSpot);
         // Finish the knockback and stars before advancing around the rim.

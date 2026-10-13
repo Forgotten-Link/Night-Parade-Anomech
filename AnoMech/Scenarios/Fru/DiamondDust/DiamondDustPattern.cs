@@ -29,6 +29,7 @@ internal sealed class DiamondDustPattern(int firstIcicle, bool supportsMarked, b
         var requiredParity = (FirstIcicle + (Marked(role) ? 1 : 0)) & 1;
         return (original + ((original & 1) == requiredParity ? 0 : (int)role < 4 ? 7 : 1)) % 8;
     }
+    public static Vector3 MarkerSpot(PartyRole role) => Point(Clocks[(int)role], 10);
     public Vector3 KickSpot(PartyRole role) => Point(Clock(role), (Axe ? 16 : 0) + (Marked(role) ? 3 : 1));
     public Vector3 StoneSpot(PartyRole role) => Point(Clock(role), Marked(role) ? Axe ? 19 : 8 : Axe ? 4 : 1);
     public int KnockbackOctant(PartyRole role)
