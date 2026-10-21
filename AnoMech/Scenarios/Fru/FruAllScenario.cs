@@ -9,6 +9,7 @@ using AnoMech.Scenarios.Fru.DiamondDust;
 using AnoMech.Scenarios.Fru.FallOfFaith;
 using AnoMech.Scenarios.Fru.FulgentBlade;
 using AnoMech.Scenarios.Fru.LightRampant;
+using AnoMech.Scenarios.Fru.MirrorMirror;
 using AnoMech.Scenarios.Fru.ParadiseRegained;
 using AnoMech.Scenarios.Fru.Towers;
 using AnoMech.Scenarios.Fru.UltimateRelativity;
@@ -20,7 +21,7 @@ public sealed class FruAllScenario(IReadOnlyList<IScenario> scenarios) : IScenar
     public static IReadOnlyList<IScenario> CreateCatalog()
     {
         // Shared instances retain each scenario's settings when selected via All.
-        IScenario[] ordered = [new FruDiamondDustScenario(), new FruLightRampantScenario(),
+        IScenario[] ordered = [new FruDiamondDustScenario(), new FruMirrorMirrorScenario(), new FruLightRampantScenario(),
             new FruUltimateRelativityScenario(), new FruApocalypseScenario(),
             new FruDarklitDragonsongScenario(), new FruCrystallizeTimeScenario(),
             new FruFulgentBladeScenario(), new FruParadiseRegainedScenario()];
