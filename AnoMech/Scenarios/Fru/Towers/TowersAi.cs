@@ -18,7 +18,7 @@ internal sealed class TowersAi : IScenarioAi
             => world.Events.Add(time, () => {
                 if (!active()) return;
                 foreach (var role in TowersPattern.Roles)
-                    if (world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive()) bot.MoveTo(position(role), 6);
+                    if (world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive()) bot.MoveTo(position(role), 6);
             });
 
         Move(1, r => r == PartyRole.MainTank ? new(0, 0, -6.5f) : r == PartyRole.OffTank ? new Vector3(-2, 0, -6.5f) : new(0, 0, 5));

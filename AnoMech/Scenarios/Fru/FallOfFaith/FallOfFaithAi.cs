@@ -18,7 +18,7 @@ internal sealed class FallOfFaithAi(string name, PartyRole[] conga) : IScenarioA
             => world.Events.Add(time, () => {
                 if (!active()) return;
                 foreach (var role in FallOfFaithPattern.Roles)
-                    if ((include == null || include(role)) && world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive()
+                    if ((include == null || include(role)) && world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive()
                         && !Rooted(role))
                         bot.MoveTo(position(role), 6);
             });

@@ -152,7 +152,7 @@ public sealed class FruTowersScenario : IScenario
             if (world.Party.Get(role) is { } member)
             {
                 member.RemoveStatus(PowderMarkStatus); member.RemoveStatus(PhysicalVulnerability);
-                if (member is SimPartyNpc bot) bot.StopMoving();
+                if (world.Party.IsBotDriven(member)) member.StopMoving();
             }
         foreach (var obj in owned) obj.Despawn();
         owned.Clear();

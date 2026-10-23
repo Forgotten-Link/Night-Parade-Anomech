@@ -28,9 +28,10 @@ internal sealed class MirrorMirrorPattern(int blue, int firstRed, bool pairs, bo
     public static MirrorMirrorPattern Random(Random random)
     {
         var blue = random.Next(8);
-        // UNVERIFIED: blue opposite the midpoint of the reds was never observed, but is allowed here.
-        var firsts = Enumerable.Range(0, 8).Where(r => r != blue && (r + 2) % 8 != blue).ToArray();
-        return new(blue, firsts[random.Next(firsts.Length)], random.Next(2) == 0, random.Next(2) == 0);
+        // The reds never sit on the blue, and are never centred opposite it.
+        int[] firstRedOffsets = [1, 2, 4, 5, 7];
+        var firstRed = blue + firstRedOffsets[random.Next(firstRedOffsets.Length)];
+        return new(blue, firstRed, random.Next(2) == 0, random.Next(2) == 0);
     }
 
     public static Vector3 Point(float octant, float radius)

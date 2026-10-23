@@ -16,8 +16,8 @@ internal sealed class ParadiseRegainedAi : IScenarioAi<ParadiseRegainedPattern>
         void Move(int stage)
         {
             foreach (var member in world.Party.ActiveMembers())
-                if (member is SimPartyNpc bot)
-                    bot.MoveTo(pattern.Position(bot.Role, stage), ParadiseRegainedPattern.RunSpeed);
+                if (member is ISimPartyMember slot && world.Party.IsBotDriven(member))
+                    member.MoveTo(pattern.Position(slot.Role, stage), ParadiseRegainedPattern.RunSpeed);
         }
     }
 }

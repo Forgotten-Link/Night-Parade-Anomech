@@ -63,6 +63,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
         At(0.5f, SpawnBosses);
         At(1.1f, () => Own(world.SpawnMapEffect(FragmentSlot, FruConstants.MapEffect.Show, FruConstants.MapEffect.Hide)));
         At(1, () => { usurper?.Cast(CrystallizeUsurper, castSeconds: 4.5f); oracle?.Cast(CrystallizeOracle, castSeconds: 4.5f); });
+        At(2, () => MoveRoles(_ => Vector3.Zero));
         At(6.5f, AssignDebuffs);
         At(10f, SpawnTethers);
         At(DragonSpawnTime, SpawnDragons);
@@ -424,7 +425,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
         {
             var role = pattern.Role(assignment);
             puddleDestinations.Remove(role);
-            if (world.Party.Get(role) is not SimPartyNpc bot || !bot.IsAlive()) continue;
+            if (world.Party.Get(role) is not { } bot || !world.Party.IsBotDriven(bot) || !bot.IsAlive()) continue;
             if (destination.Puddle is { } source)
             {
                 puddleDestinations[role] = source;
@@ -441,7 +442,7 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
     {
         puddleDestinations.Clear();
         foreach (var member in Members())
-            if (member is SimPartyNpc bot) bot.MoveTo(positions(bot.Role), CrystallizeTimePattern.RunSpeed);
+            if (member is ISimPartyMember slot && world.Party.IsBotDriven(member)) member.MoveTo(positions(slot.Role), CrystallizeTimePattern.RunSpeed);
     }
     private static void ForceAway(SimCharacter? member, Vector3 source, float distance, float speed)
     {
@@ -503,14 +504,15 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
             var cleansed = member.HasStatus(FangStatus);
             member.RemoveStatus(FangStatus);
             puddle.Object.Despawn();
-            if (cleansed && time < 35.8f && member is SimPartyNpc bot && pattern.AfterCleanse.TryGetValue(pattern.Assignment(bot.Role), out var next))
+            if (cleansed && time < 35.8f && member is ISimPartyMember slot && world.Party.IsBotDriven(member)
+                && pattern.AfterCleanse.TryGetValue(pattern.Assignment(slot.Role), out var next))
             {
-                puddleDestinations.Remove(bot.Role);
-                bot.MoveTo(next.Position, CrystallizeTimePattern.RunSpeed);
+                puddleDestinations.Remove(slot.Role);
+                member.MoveTo(next.Position, CrystallizeTimePattern.RunSpeed);
             }
         }
         foreach (var (role, source) in puddleDestinations)
-            if (world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive() && puddles.TryGetValue(source, out var puddle)
+            if (world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive() && puddles.TryGetValue(source, out var puddle)
                 && puddle.Object is { IsActive: true }) bot.MoveTo(puddle.Position, CrystallizeTimePattern.RunSpeed);
     }
     private void TickDragon(int side, float time)
@@ -542,12 +544,12 @@ public sealed partial class FruCrystallizeTimeScenario : IScenario
         Circle(position, 12, DragonHit, "dragon interception splash", slot.Role);
         if (!valid) Hit(target, DragonHit, "dragon intercepted without Wyrmclaw", true);
         target.RemoveStatus(ClawStatus);
-        if (target is SimPartyNpc bot && pattern.Assignment(slot.Role) is CrystallizeTimeAssignment.AeroWest or CrystallizeTimeAssignment.AeroEast)
+        if (world.Party.IsBotDriven(target) && pattern.Assignment(slot.Role) is CrystallizeTimeAssignment.AeroWest or CrystallizeTimeAssignment.AeroEast)
         {
             // A native head can reach the interceptor before the reference's
             // fixed move time. Start the next route after actual contact.
             var escape = pattern.East ? CrystallizeTimeRoutes.POST_EARLY_SOAK_E : CrystallizeTimeRoutes.POST_EARLY_SOAK_W;
-            bot.MoveTo(escape[pattern.Assignment(slot.Role)].Position, CrystallizeTimePattern.RunSpeed);
+            target.MoveTo(escape[pattern.Assignment(slot.Role)].Position, CrystallizeTimePattern.RunSpeed);
         }
         var puddle = world.SpawnEventObject(new EventObjectSpawnConfig { EObjId = Puddle, Placement = new(position, 0), TimelineState = 1 });
         if (puddle != null) Own(puddle);

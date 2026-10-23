@@ -16,7 +16,7 @@ internal sealed class DarklitAi : IScenarioAi
             => world.Events.Add(time, () => {
                 if (!active()) return;
                 foreach (var role in DarklitPattern.Roles)
-                    if ((filter == null || filter(role)) && world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive()) bot.MoveTo(position(role), 6);
+                    if ((filter == null || filter(role)) && world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive()) bot.MoveTo(position(role), 6);
             });
         Move(2, DarklitPattern.Middle);
         Move(7.2f, DarklitPattern.OpeningSpread);

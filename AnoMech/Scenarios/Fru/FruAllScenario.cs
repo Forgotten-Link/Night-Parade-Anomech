@@ -26,10 +26,11 @@ public sealed class FruAllScenario(IReadOnlyList<IScenario> scenarios) : IScenar
             new FruDarklitDragonsongScenario(), new FruCrystallizeTimeScenario(),
             new FruFulgentBladeScenario(), new FruParadiseRegainedScenario()];
         // The P1 mechanics stay standalone entries: All starts at P2.
-        return [new FruFallOfFaithScenario(), new FruTowersScenario(), new FruAllScenario(ordered), .. ordered];
+        return [new FruAllScenario(ordered), new FruFallOfFaithScenario(), new FruTowersScenario(), .. ordered];
     }
     public string Name => "All";
-    public IPhase Phase => FruZone.P2;
+    // Only places the menu entry: the run takes each scenario's own phase, so this lists All first.
+    public IPhase Phase => FruZone.P1;
     public IReadOnlyList<IScenario> Scenarios { get; } = scenarios;
     public IReadOnlyList<IScenarioAi> AiStrats { get; } = [new AllAi()];
     // Game expands this menu entry into its individual scenarios before Run.

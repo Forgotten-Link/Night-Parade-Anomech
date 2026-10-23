@@ -15,7 +15,7 @@ internal sealed class ApocalypseAi : IScenarioAi
         void Move(Func<PartyRole, Vector3> destination)
         {
             foreach (var role in ApocalypsePattern.Roles)
-                if (world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive())
+                if (world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive())
                     bot.MoveTo(destination(role), ApocalypseConstants.RunSpeed);
         }
         void At(float time, Func<PartyRole, Vector3> destination)
@@ -29,7 +29,7 @@ internal sealed class ApocalypseAi : IScenarioAi
         At(36.2f, pattern.PostEruption);
         At(37, pattern.SecondStack);
         void Tank(float time, bool near) => world.Events.Add(time, () => {
-            if (boss() is { IsActive: true } && world.Party.Get(PartyRole.OffTank) is SimPartyNpc bot && bot.IsAlive())
+            if (boss() is { IsActive: true } && world.Party.Get(PartyRole.OffTank) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive())
                 bot.MoveTo(pattern.TankBait(near), ApocalypseConstants.RunSpeed);
         });
         Tank(41.7f, true);

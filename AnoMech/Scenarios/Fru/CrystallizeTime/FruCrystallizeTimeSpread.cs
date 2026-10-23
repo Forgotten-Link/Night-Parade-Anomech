@@ -36,24 +36,24 @@ public sealed partial class FruCrystallizeTimeScenario
 
     private void UpdateSpiritSpread()
     {
-        var player = world.Party.Player;
-        var bots = Members().OfType<SimPartyNpc>().OrderBy(b => b.Role).ToArray();
+        var player = world.Party.Player is { } human && !world.Party.IsBotDriven(human) ? human : null;
+        var bots = Members().Where(world.Party.IsBotDriven).Select(m => (Member: m, ((ISimPartyMember)m).Role)).OrderBy(b => b.Role).ToArray();
         foreach (var role in spreadDestinations.Keys.ToArray())
             if (!bots.Any(b => b.Role == role)) spreadDestinations.Remove(role);
 
-        foreach (var bot in bots)
+        foreach (var (bot, botRole) in bots)
         {
             bool Clear(Vector3 position) =>
                 (!player.IsAlive() || Vector3.Distance(position, player!.Position) >= SpreadClearance)
-                && spreadDestinations.All(d => d.Key == bot.Role || Vector3.Distance(position, d.Value) >= SpreadClearance);
+                && spreadDestinations.All(d => d.Key == botRole || Vector3.Distance(position, d.Value) >= SpreadClearance);
 
             // Keep a safe assignment to avoid making the whole formation shuffle
             // whenever the player moves. Only displaced bots need a new spot.
-            if (spreadDestinations.TryGetValue(bot.Role, out var current) && Clear(current)) continue;
+            if (spreadDestinations.TryGetValue(botRole, out var current) && Clear(current)) continue;
             var candidates = SpreadCandidates.Where(Clear).OrderBy(p => Vector3.DistanceSquared(bot.Position, p)).ToArray();
             if (candidates.Length == 0) continue;
             var destination = candidates[0];
-            spreadDestinations[bot.Role] = destination;
+            spreadDestinations[botRole] = destination;
             bot.MoveTo(destination, CrystallizeTimePattern.RunSpeed);
         }
     }

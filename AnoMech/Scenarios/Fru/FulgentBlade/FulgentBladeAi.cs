@@ -33,13 +33,15 @@ internal sealed class FulgentBladeAi : IScenarioAi<FulgentBladeAiState>
     public void Run(FulgentBladeAiState state, SimWorld world)
     {
         var plan = new FulgentBladePartyPlan(state.Pattern);
-        world.Events.Add(FulgentBladePartyPlan.MainTankSetupTime, () =>
+        void MoveMainTank(float time, Vector3 destination) => world.Events.Add(time, () =>
         {
             if (state.Pandora() is not { IsActive: true }) return;
             foreach (var member in world.Party.ActiveMembers())
-                if (member is SimPartyNpc { Role: PartyRole.MainTank } tank)
-                    tank.MoveTo(plan.MainTankSetup, FulgentBladePartyPlan.RunSpeed);
+                if (member is ISimPartyMember { Role: PartyRole.MainTank } && world.Party.IsBotDriven(member))
+                    member.MoveTo(destination, FulgentBladePartyPlan.RunSpeed);
         });
+        MoveMainTank(FulgentBladePartyPlan.MainTankDragTime, plan.MainTankDrag);
+        MoveMainTank(FulgentBladePartyPlan.MainTankSetupTime, plan.MainTankSetup);
         world.Events.Add(FulgentBladePartyPlan.PrepositionTime, () => MoveBots(_ => plan.Preposition));
         for (var step = 0; step < FulgentBladePartyPlan.DodgeCount; step++)
         {
@@ -47,7 +49,7 @@ internal sealed class FulgentBladeAi : IScenarioAi<FulgentBladeAiState>
             world.Events.Add(FulgentBladePartyPlan.DodgeTime(step), () =>
             {
                 var boss = state.Pandora();
-                MoveBots(bot => bot.Role == PartyRole.MainTank && boss is { IsActive: true }
+                MoveBots(role => role == PartyRole.MainTank && boss is { IsActive: true }
                     ? plan.MainTankDodge(index, boss.Position) : plan.Dodge(index));
             });
         }
@@ -55,18 +57,14 @@ internal sealed class FulgentBladeAi : IScenarioAi<FulgentBladeAiState>
         {
             if (state.Pandora() is not { IsActive: true } boss) return;
             var stacks = plan.Stacks(boss.Position, boss.Rotation);
-            MoveBots(bot => FulgentBladePartyPlan.UsesLeftStack((int)bot.Role) ? stacks.Left : stacks.Right);
+            MoveBots(role => FulgentBladePartyPlan.UsesLeftStack((int)role) ? stacks.Left : stacks.Right);
         });
 
-        void MoveBots(Func<SimPartyNpc, Vector3> destination)
+        void MoveBots(Func<PartyRole, Vector3> destination)
         {
             foreach (var member in world.Party.ActiveMembers())
-            {
-                // Explicitly exclude SimPlayer: selecting a role never gives
-                // its movement to this AI, including when that role is MT.
-                if (member is SimPartyNpc bot)
-                    bot.MoveTo(destination(bot), FulgentBladePartyPlan.RunSpeed);
-            }
+                if (member is ISimPartyMember slot && world.Party.IsBotDriven(member))
+                    member.MoveTo(destination(slot.Role), FulgentBladePartyPlan.RunSpeed);
         }
     }
 }

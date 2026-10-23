@@ -49,7 +49,7 @@ internal sealed class PolarizingStrikesSequence(SimWorld world, Func<SimEnemy?> 
     {
         if (pandora() is not { IsActive: true }) return;
         foreach (var member in world.Party.ActiveMembers())
-            if (member is SimPartyNpc bot) bot.MoveTo(destination(bot.Role), ParadiseRegainedPattern.RunSpeed);
+            if (member is ISimPartyMember slot && world.Party.IsBotDriven(member)) member.MoveTo(destination(slot.Role), ParadiseRegainedPattern.RunSpeed);
     }
 
     private void CastBoss(uint action, float seconds)

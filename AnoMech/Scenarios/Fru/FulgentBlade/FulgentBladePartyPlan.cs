@@ -8,7 +8,8 @@ namespace AnoMech.Scenarios.Fru.FulgentBlade;
 internal sealed class FulgentBladePartyPlan(FulgentBladePattern pattern)
 {
     public const float RunSpeed = 6f;
-    public const float MainTankSetupTime = 8.5f;
+    public const float MainTankDragTime = 8.5f;
+    public const float MainTankSetupTime = 11.5f;
     public const float PrepositionTime = 15.5f;
     public const float AkhMornCastTime = 28.5f;
     public const float StackTime = 33.5f;
@@ -20,6 +21,8 @@ internal sealed class FulgentBladePartyPlan(FulgentBladePattern pattern)
 
     // Face toward the cardinal dodge pocket, rather than choosing a fixed north.
     public Vector3 TankFacing => Vector3.Normalize(pattern.Origin);
+    // Crossing the centre first pulls Pandora back to it from wherever the tank started.
+    public Vector3 MainTankDrag => -TankFacing * 2f;
     public Vector3 MainTankSetup => TankFacing * 6f;
 
     public Vector3 Preposition => pattern.Origin;

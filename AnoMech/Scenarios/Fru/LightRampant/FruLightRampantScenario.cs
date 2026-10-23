@@ -274,7 +274,7 @@ public sealed class FruLightRampantScenario : IScenario
             if (world.Party.Get(role) is { } member)
             {
                 member.RemoveStatus(Weight); member.RemoveStatus(Lightsteeped); member.RemoveVfx(PuddleMarker);
-                if (member is SimPartyNpc bot) bot.StopMoving();
+                if (world.Party.IsBotDriven(member)) member.StopMoving();
             }
         foreach (var obj in owned) obj.Despawn();
     }

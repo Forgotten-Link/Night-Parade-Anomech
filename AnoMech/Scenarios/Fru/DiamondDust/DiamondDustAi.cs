@@ -14,11 +14,11 @@ internal sealed class DiamondDustAi : IScenarioAi
     public string Group => "NA";
     internal void Run(DiamondDustPattern pattern, SimWorld world, Func<bool> active, Func<IReadOnlyList<Vector3>> puddles)
     {
-        void Each(Action<SimPartyNpc, PartyRole> action)
+        void Each(Action<SimCharacter, PartyRole> action)
         {
             if (!active()) return;
             foreach (var role in DiamondDustPattern.Roles)
-                if (world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive()) action(bot, role);
+                if (world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive()) action(bot, role);
         }
         void Move(float time, Func<PartyRole, Vector3> position, float speed = RunSpeed)
             => world.Events.Add(time, () => Each((bot, role) => bot.MoveTo(position(role), speed)));
@@ -29,12 +29,14 @@ internal sealed class DiamondDustAi : IScenarioAi
                 if (pattern.SlideDestination(bot.Position, behind, puddles(), prepareNextSlide: recovery) is { } destination)
                     bot.Slide(destination - bot.Position, SlideDistance, SlideSpeed);
             }));
-        foreach (var role in DiamondDustPattern.Roles)
-            if (world.Party.Get(role) is SimPartyNpc bot && bot.IsAlive())
-            {
-                bot.SetPosition(DiamondDustPattern.MarkerSpot(role));
-                bot.Face(Vector3.Zero);
-            }
+        world.Events.Add(0, () => {
+            foreach (var role in DiamondDustPattern.Roles)
+                if (world.Party.Get(role) is { } bot && world.Party.IsBotDriven(bot) && bot.IsAlive())
+                {
+                    bot.SetPosition(DiamondDustPattern.MarkerSpot(role));
+                    bot.Face(Vector3.Zero);
+                }
+        });
         Move(16.3f, pattern.KickSpot);
         Move(KickTime + 0.1f, pattern.StoneSpot);
         Move(StoneTime + 0.1f, pattern.KnockbackSpot);
