@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AnoMech.Core;
 using AnoMech.Core.EnemyActions;
 using AnoMech.Core.SimObjects;
@@ -27,32 +28,40 @@ public static class UmadActions
 
     // -- P1 Tele-trouncing --
 
+    // The helpers casting these at a player stay as they stand, unturned.
+    public static readonly EnemyAction TeleTrouncingArrowSpawn = new(UmadConstants.ActionId.TeleTrouncingArrowSpawn)
+    {
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
+    };
+
     public static readonly EnemyAction DoubleTroubleTrapStack = new(UmadConstants.ActionId.DoubleTroubleTrapStack)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects =
         [
             Damage(MagicVulns, split: Stack(4)),
             OnOthers(MagicVulnerabilityUp),
-            OnOthers(Knockback(UmadConstants.KnockbackId.DoubleTroubleTrapStack, knockbackDelay: 0f)),
+            OnOthers(Knockback(UmadConstants.KnockbackId.DoubleTroubleTrapStack, knockbackDelay: 0.70f)),
         ],
-        Timing = new() { DamageDelay = 0.67f },
+        Timing = new() { DamageDelay = 0.64f },
     };
 
     public static readonly EnemyAction IndulgentWill = new(UmadConstants.ActionId.IndulgentWill)
     {
-        Cast = new() { AnimationLock = 1.1f },
-        Effects = [Damage(MagicVulns)],
-        Timing = new() { DamageDelay = 0.63f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
+        // Retail's gain entry for Confused carries param0 0xA4; what the client reads it as is UNVERIFIED.
+        Effects = [Damage(MagicVulns), ApplyStatus(UmadConstants.StatusId.Confused, 6f, delayToEffectResult: true, entryParam: 0xA4)],
+        Timing = new() { DamageDelay = 0.61f },
     };
 
     public static readonly EnemyAction IdyllicWill = new(UmadConstants.ActionId.IdyllicWill)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects = [Damage(MagicVulns), MagicVulnerabilityUp],
         Timing = new() { DamageDelay = 0.63f },
     };
 
+    // UNVERIFIED for Real1: no replay has it hitting anyone; Real2's delay is reused.
     public static readonly EnemyAction ThrummingThunderReal1 = ThrummingThunder(UmadConstants.ActionId.ThrummingThunderIII_Real);
     public static readonly EnemyAction ThrummingThunderReal2 = ThrummingThunder(UmadConstants.ActionId.ThrummingThunderIII_FakeAnim);
 
@@ -60,7 +69,7 @@ public static class UmadActions
     {
         Cast = new() { AnimationLock = 1.1f },
         Effects = [Damage(MagicVulns, Lethal)],
-        Timing = new() { DamageDelay = 0.65f },
+        Timing = new() { DamageDelay = 0.60f },
     };
 
     public static readonly EnemyAction IndolentWill = StatueGaze(UmadConstants.ActionId.IndolentWill, lookAway: true);
@@ -75,16 +84,16 @@ public static class UmadActions
 
     public static readonly EnemyAction FlagrantFireSpread = new(UmadConstants.ActionId.FlagrantFireSpread)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects = [Damage(MagicVulns), MagicVulnerabilityUp],
-        Timing = new() { DamageDelay = 0.63f },
+        Timing = new() { DamageDelay = 0.60f },
     };
 
     public static readonly EnemyAction FlagrantFireStack = new(UmadConstants.ActionId.FlagrantFireStack)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects = [Damage(MagicVulns, split: Stack(4)), MagicVulnerabilityUp],
-        Timing = new() { DamageDelay = 0.71f },
+        Timing = new() { DamageDelay = 0.62f },
     };
 
     // -- P2 Forsaken --
@@ -93,27 +102,27 @@ public static class UmadActions
     {
         Cast = new() { AnimationLock = 3.1f },
         Effects = [Damage(MagicVulns)],
-        Timing = new() { DamageDelay = 1.61f },
+        Timing = new() { DamageDelay = 1.91f },
     };
 
     public static readonly EnemyAction LightOfJudgment = new(UmadConstants.ActionId.LightOfJudgment)
     {
         Cast = new() { AnimationLock = 3.1f },
         Effects = [Damage(MagicVulns.VulnerableTo(UmadConstants.StatusId.SpellsTrouble))],
-        Timing = new() { DamageDelay = 0.8f },
+        Timing = new() { DamageDelay = 1.1f },
     };
 
-    private static readonly EnemyAction TheRiverOfLight = new(UmadConstants.ActionId.TheRiverOfLight)
+    public static readonly EnemyAction TheRiverOfLight = new(UmadConstants.ActionId.TheRiverOfLight)
     {
         Cast = new() { AnimationLock = 1.1f },
         Effects = [Damage(MagicVulns, Lethal)],
-        DeathExplanation = "a tower not taken by exactly two",
+        DeathExplanation = "a tower taken by fewer than two",
     };
 
     public static readonly EnemyAction ThePathOfLight = new(UmadConstants.ActionId.ThePathOfLight)
     {
         Cast = new() { AnimationLock = 1.1f },
-        Effects = [FollowUp(TheRiverOfLight, ctx => ctx.Hits.Count != 2)],
+        Effects = [Damage(Harmless)],
         Timing = new() { DamageDelay = 0.64f },
     };
 
@@ -189,12 +198,12 @@ public static class UmadActions
     {
         Cast = new() { AnimationLock = 1.1f, OmenDelay = 4f },
         Effects = [Damage(MagicVulns, Lethal)],
-        Timing = new() { DamageDelay = 0.1f },
+        Timing = new() { DamageDelay = 0.4f },
     };
 
     public static readonly EnemyAction ThunderIII = new(UmadConstants.ActionId.ThunderIII_Resolve)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects =
         [
             Damage(MagicVulns.VulnerableTo(UmadConstants.StatusId.LightningResistanceDownII, 1f), TankBuster.MinMit(0.60f)),
@@ -223,7 +232,7 @@ public static class UmadActions
         Timing = new() { DamageDelay = 0.48f },
     };
 
-    private static readonly EnemyAction UnmitigatedImpact = new(UmadConstants.ActionId.UnmitigatedImpact)
+    public static readonly EnemyAction UnmitigatedImpact = new(UmadConstants.ActionId.UnmitigatedImpact)
     {
         Cast = new() { AnimationLock = 1.1f },
         Effects = [Damage(MagicVulns, Lethal)],
@@ -237,7 +246,6 @@ public static class UmadActions
         [
             Damage(MagicVulns, split: Stack(2)),
             ApplyStatus(UmadConstants.StatusId.MagicVulnerabilityUp, 3f),
-            FollowUp(UnmitigatedImpact, ctx => ctx.Hits.Count == 0),
         ],
         Timing = new() { DamageDelay = 0.17f },
     };
@@ -249,9 +257,16 @@ public static class UmadActions
         [
             OnOthers(Damage(VulnerableTo(UmadConstants.StatusId.EarthResistanceDownII))),
             OnOthers(ApplyStatus(UmadConstants.StatusId.EarthResistanceDownII, 1.96f)),
-            OnTarget(RemoveStatus(UmadConstants.StatusId.Accretion)),
         ],
         Timing = new() { DamageDelay = 0.64f },
+    };
+
+    // Lands on everyone for 0, typeless, whatever the sheet's AttackType says.
+    public static readonly EnemyAction WhiteHole = new(UmadConstants.ActionId.WhiteHole)
+    {
+        Cast = new() { AnimationLock = 3.1f },
+        Effects = [Damage(Harmless, kindOverride: DamageKind.Typeless)],
+        Timing = new() { DamageDelay = 1.43f },
     };
 
     public static readonly EnemyAction Nothingness = new(UmadConstants.ActionId.Nothingness)
@@ -263,17 +278,11 @@ public static class UmadActions
 
     // -- P3 Limit Cut --
 
-    // Kefka's second trance beat: instant, although the sheet gives it a 3s cast.
-    public static readonly EnemyAction RingOfFire = new(UmadConstants.ActionId.RingOfFire)
-    {
-        Cast = new() { CastSecondsOverride = 0f },
-    };
-
     public static readonly EnemyAction UmbraSmash = new(UmadConstants.ActionId.UmbraSmash)
     {
         Cast = new() { AnimationLock = 4.1f },
         Effects = [Damage(split: Falloff(20f))],
-        Timing = new() { DamageDelay = 1.78f },
+        Timing = new() { DamageDelay = 2.08f },
     };
 
     public static readonly EnemyAction VacuumWave = new(UmadConstants.ActionId.VacuumWave)
@@ -281,11 +290,11 @@ public static class UmadActions
         Cast = new() { AnimationLock = 3.1f },
         Effects =
         [
-            Knockback(VacuumWavePush, 40f, knockbackDelay: 0.78f),
-            RemoveStatus(UmadConstants.StatusId.Headwind),
-            RemoveStatus(UmadConstants.StatusId.Tailwind),
+            Push(VacuumWavePush, 40f, pushDelay: 1.06f),
+            RemoveStatus(UmadConstants.StatusId.Headwind, atImpact: true),
+            RemoveStatus(UmadConstants.StatusId.Tailwind, atImpact: true),
         ],
-        Timing = new() { DamageDelay = 0.84f },
+        Timing = new() { DamageDelay = 1.14f },
     };
 
     private static float? VacuumWavePush(EnemyActionContext ctx, SimCharacter target)
@@ -314,7 +323,7 @@ public static class UmadActions
 
     public static readonly EnemyAction Cyclone = new(UmadConstants.ActionId.Cyclone)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects =
         [
             Damage(VulnerableTo(UmadConstants.StatusId.WindResistanceDownII, 0.80f), split: Stack(2, understacked: TankBuster.MinMit(0.80f))),
@@ -324,6 +333,34 @@ public static class UmadActions
     };
 
     // -- P4 Kefka Says --
+
+    public static readonly EnemyAction GrandCross = new(UmadConstants.ActionId.GrandCross)
+    {
+        Cast = new() { AnimationLock = 3.0f },
+        Effects = [Damage(MagicVulns)],
+        Timing = new() { DamageDelay = 1.41f },
+    };
+
+    public static readonly EnemyAction InfernoRaidwide = new(UmadConstants.ActionId.Inferno_Visual)
+    {
+        Cast = new() { AnimationLock = 1.1f },
+        Effects = [Damage(MagicVulns)],
+        Timing = new() { DamageDelay = 2.10f },
+    };
+
+    public static readonly EnemyAction TsunamiRaidwide = new(UmadConstants.ActionId.Tsunami_Visual)
+    {
+        Cast = new() { AnimationLock = 1.1f },
+        Effects = [Damage(MagicVulns)],
+        Timing = new() { DamageDelay = 0.93f },
+    };
+
+    public static readonly EnemyAction UltimaUpsurge = new(UmadConstants.ActionId.UltimaUpsurge)
+    {
+        Cast = new() { AnimationLock = 2.7f },
+        Effects = [Damage(MagicVulns)],
+        Timing = new() { DamageDelay = 1.11f },
+    };
 
     public static readonly EnemyAction BlizzardIIIBlowout = MysteryBlizzard(UmadConstants.ActionId.BlizzardIIIBlowout_Real);
     public static readonly EnemyAction BlizzardIIIBlowoutLie = MysteryBlizzard(UmadConstants.ActionId.BlizzardIIIBlowout_FakeAnim);
@@ -366,11 +403,11 @@ public static class UmadActions
             Cast = new() { AnimationLock = 2.1f },
             Effects =
             [
-                Damage(VulnerableTo(lethalWound).ProtectedBy(cleansedBy)),
+                Damage(VulnerableTo(lethalWound).ProtectedBy(cleansedBy), kindOverride: DamageKind.Typeless),
                 OnHavingStatus(lethalWound, RemoveStatus(cleansedBy)),
                 RemoveStatus(UmadConstants.StatusId.WhiteWound),
                 RemoveStatus(UmadConstants.StatusId.BlackWound),
-                ApplyStatus(wound, 0f),
+                ApplyStatus(wound, 0f, delayToEffectResult: true),
             ],
             Timing = new() { DamageDelay = 0.13f },
         };
@@ -379,22 +416,26 @@ public static class UmadActions
     private static ushort OtherWound(ushort wound)
         => wound == UmadConstants.StatusId.WhiteWound ? UmadConstants.StatusId.BlackWound : UmadConstants.StatusId.WhiteWound;
 
-    public static readonly EnemyAction DeathBoltStack = DeathElement(UmadConstants.ActionId.DeathBolt, stack: true);
+    public static readonly EnemyAction DeathBoltStack = DeathElement(UmadConstants.ActionId.DeathBolt_Lie, stack: true);
     public static readonly EnemyAction DeathBoltSpread = DeathElement(UmadConstants.ActionId.DeathBolt, stack: false);
     public static readonly EnemyAction DeathWaveStack = DeathElement(UmadConstants.ActionId.DeathWave, stack: true);
-    public static readonly EnemyAction DeathWaveSpread = DeathElement(UmadConstants.ActionId.DeathWave, stack: false);
+    public static readonly EnemyAction DeathWaveSpread = DeathElement(UmadConstants.ActionId.DeathWave_Lie, stack: false);
 
     private static EnemyAction DeathElement(uint actionId, bool stack) => new(actionId)
     {
-        Cast = new() { AnimationLock = 1.1f },
-        Effects = [stack ? Damage(MagicVulns, split: Stack(3)) : Damage(MagicVulns), LongMagicVulnerabilityUp],
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
+        Effects =
+        [
+            stack ? Damage(MagicVulns, split: Stack(3)) : Damage(MagicVulns),
+            ApplyStatus(UmadConstants.StatusId.MagicVulnerabilityUp, 1.96f, delayToEffectResult: true),
+        ],
         Timing = new() { DamageDelay = 0.63f },
     };
 
     public static readonly EnemyAction DeathShriekLookAway = DeathShriek(lookAway: true);
     public static readonly EnemyAction DeathShriekLookAt = DeathShriek(lookAway: false);
 
-    private static EnemyAction DeathShriek(bool lookAway) => new(UmadConstants.ActionId.DeathShriek)
+    private static EnemyAction DeathShriek(bool lookAway) => new(lookAway ? UmadConstants.ActionId.DeathShriek : UmadConstants.ActionId.DeathShriek_Lie)
     {
         Cast = new() { AnimationLock = 1.1f },
         Effects = [Gaze(lookAway)],
@@ -423,35 +464,38 @@ public static class UmadActions
     public static readonly EnemyAction DeathSurge = new(UmadConstants.ActionId.DeathSurge)
     {
         Cast = new() { AnimationLock = 1.1f },
-        Effects = [Damage(kindOverride: DamageKind.Unique)],
+        Effects = [Damage(kindOverride: DamageKind.Typeless)],
         Timing = new() { DamageDelay = 0.8f },
     };
 
     public static readonly EnemyAction DeathSurgeWipe = DeathSurge with
     {
-        Effects = [Damage(Lethal, kindOverride: DamageKind.Unique)],
+        Effects = [Damage(Lethal, kindOverride: DamageKind.Typeless)],
         DeathExplanation = "Allagan Field holder died",
     };
 
     // -- P5 Celestriad --
 
     public static readonly EnemyAction CelestriadFireTower = CelestriadTower(
-        UmadConstants.ActionId.CelestriadFireIII, UmadConstants.ActionId.StardustFireIII, UmadConstants.StatusId.FireResistanceDownII);
+        UmadConstants.ActionId.CelestriadFireIII, UmadConstants.StatusId.FireResistanceDownII);
 
     public static readonly EnemyAction CelestriadIceTower = CelestriadTower(
-        UmadConstants.ActionId.CelestriadBlizzardIII, UmadConstants.ActionId.StardustBlizzardIII, UmadConstants.StatusId.IceResistanceDownII);
+        UmadConstants.ActionId.CelestriadBlizzardIII, UmadConstants.StatusId.IceResistanceDownII);
 
     public static readonly EnemyAction CelestriadLightningTower = CelestriadTower(
-        UmadConstants.ActionId.CelestriadThunderIII, UmadConstants.ActionId.StardustThunderIII, UmadConstants.StatusId.LightningResistanceDownII);
+        UmadConstants.ActionId.CelestriadThunderIII, UmadConstants.StatusId.LightningResistanceDownII);
 
-    private static EnemyAction CelestriadTower(uint actionId, uint stardustId, ushort resistanceDown) => new(actionId)
+    public static readonly EnemyAction StardustFireIII = Stardust(UmadConstants.ActionId.StardustFireIII);
+    public static readonly EnemyAction StardustBlizzardIII = Stardust(UmadConstants.ActionId.StardustBlizzardIII);
+    public static readonly EnemyAction StardustThunderIII = Stardust(UmadConstants.ActionId.StardustThunderIII);
+
+    private static EnemyAction CelestriadTower(uint actionId, ushort resistanceDown) => new(actionId)
     {
         Cast = new() { AnimationLock = 1.1f },
         Effects =
         [
             Damage(VulnerableTo(resistanceDown), split: Stack(2)),
-            ApplyStatus(resistanceDown, 20f),
-            FollowUp(Stardust(stardustId), ctx => ctx.Hits.Count == 0),
+            ApplyStatus(resistanceDown, 20f, delayToEffectResult: true),
         ],
         Timing = new() { DamageDelay = 0.64f },
     };
@@ -462,7 +506,7 @@ public static class UmadActions
         Effects =
         [
             Damage(),
-            ApplyStatus(UmadConstants.StatusId.DamageDown, 30f), // UNVERIFIED duration
+            ApplyStatus(UmadConstants.StatusId.DamageDown, 180f),
         ],
         Timing = new() { DamageDelay = 0.68f },
     };
@@ -508,16 +552,16 @@ public static class UmadActions
 
     public static readonly EnemyAction ChaoticFlood = new(UmadConstants.ActionId.ChaoticFlood)
     {
-        Cast = new() { AnimationLock = 1.1f },
+        Cast = new() { AnimationLock = 1.1f, FaceTarget = false },
         Effects = [Damage(MagicVulns, split: Stack(8))],
         Timing = new() { DamageDelay = 0.64f },
     };
 
     private sealed class NothingnessEffect : IEnemyActionEffect
     {
-        public void Apply(EnemyActionContext ctx)
+        public void Apply(EnemyActionContext ctx, IReadOnlyList<SimCharacter> hits)
         {
-            foreach (var target in ctx.Hits)
+            foreach (var target in hits)
             {
                 if (ctx.IsKilled(target) || !target.IsAlive()) continue;
                 if (target.HasStatus(UmadConstants.StatusId.MeanestExistence))
@@ -535,11 +579,11 @@ public static class UmadActions
                 else if (target.HasStatus(UmadConstants.StatusId.Unbecoming))
                 {
                     target.RemoveStatus(UmadConstants.StatusId.Unbecoming);
-                    target.AddStatus(UmadConstants.StatusId.MeanestExistence);
+                    ctx.AddStatus(target, UmadConstants.StatusId.MeanestExistence);
                 }
                 else
                 {
-                    target.AddStatus(UmadConstants.StatusId.Unbecoming);
+                    ctx.AddStatus(target, UmadConstants.StatusId.Unbecoming);
                 }
             }
         }

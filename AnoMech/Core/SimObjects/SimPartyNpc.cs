@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Numerics;
 using AnoMech.Core.Game;
+using AnoMech.Core.Game.Geometry;
+using AnoMech.Core.Game.Motion;
 using AnoMech.Core.Game.Party;
 using AnoMech.Core.Native.Interfaces;
 using AnoMech.Core.UserActions;
@@ -12,11 +13,12 @@ namespace AnoMech.Core.SimObjects;
 public sealed class SimPartyNpc : SimNpc, ISimPartyMember
 {
     public PartyRole Role { get; set; }
-    public bool Dead { get; private set; }
     public byte ClassJob { get; }
     public string DisplayName { get; }
 
-    internal SimPartyNpc(IBattleCharaProxy proxy, Coordinates coordinates, PartyRole role, byte classJob, string name) : base(proxy, coordinates)
+    internal SimPartyNpc(IBattleCharaProxy proxy, Coordinates coordinates, PartyRole role, byte classJob, string name, ObstacleField obstacles)
+        : base(proxy, coordinates,
+            self => new SimulatedMotion(() => self.Proxy, coordinates, self.ActorControl, obstacles, turnSpeed: null, npc: false))
     {
         Role = role;
         ClassJob = classJob;
@@ -33,14 +35,15 @@ public sealed class SimPartyNpc : SimNpc, ISimPartyMember
         return true;
     }
 
-    // level 1-3. False if KO'd, mitigation is not required, or the job has no limit break at that level.
-    internal bool UseLimitBreak(int level)
+    // level 1-3. The action id used; 0 if KO'd, mitigation is not required, or the job has no limit
+    // break at that level.
+    internal uint UseLimitBreak(int level)
     {
-        if (!this.IsAlive() || ActionsLocked) return false;
+        if (!this.IsAlive() || ActionsLocked) return 0;
         var actionId = LimitBreakHandler.ActionId(ClassJob, level);
-        if (actionId == 0 || !UseAction(actionId)) return false;
-        DiagnosticLog.Info($"[SimPartyNpc] {Role} (job {ClassJob}) uses LB{level} {ActionLookup.Name(actionId)}.");
-        return true;
+        if (actionId == 0 || !UseAction(actionId)) return 0;
+        DiagnosticLog.Info($"[SimPartyNpc] {Role} (job {ClassJob}) uses LB{level} {Natives.Data.ActionName(actionId)}.");
+        return actionId;
     }
 
     public void UseSprint(float duration)
@@ -48,23 +51,15 @@ public sealed class SimPartyNpc : SimNpc, ISimPartyMember
         if (!ActionsLocked) SprintHandler.Apply(this, duration);
     }
 
-    public void Knockback(Vector3 source, float distance, float speed) => Movement.Knockback(source, distance, speed);
-
-    public void PushInDirection(float heading, float distance, float speed) => Movement.PushInDirection(heading, distance, speed);
-
-    public void PushInDirectionEased(float heading, float distance, float durationSeconds) => Movement.PushInDirectionEased(heading, distance, durationSeconds);
-
     public override void Despawn()
     {
         base.Despawn();
     }
 
-    public void OnKilled()
+    protected override void OnPacketSpawned(IBattleCharaProxy chara) => ActorControl.ZoneIn();
+
+    public void OnKilled(bool byEnvironment)
     {
-        Dead = true;
-        StopMoving();
-        if (Proxy is not { Exists: true } chara) return;
-        chara.ApplyDeadState();
-        this.PlayKoActionTimeline();
+        GoDown(byEnvironment);
     }
 }

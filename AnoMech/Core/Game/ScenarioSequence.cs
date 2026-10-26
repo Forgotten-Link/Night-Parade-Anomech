@@ -1,50 +1,62 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using AnoMech.Scenarios;
 
 namespace AnoMech.Core.Game;
 
-// Only decides when to advance. Game owns teardown, zone/party setup and cancellation.
+// Steps through an IScenarioSequence, one clean run after another. Game owns starting each step.
 internal sealed class ScenarioSequence
 {
-    public const float BetweenScenarios = 2;
+    // Real time, whatever the event speed.
+    private const float BetweenScenarios = 2f;
+
+    public RunScenarioParams Requested { get; }
     public IReadOnlyList<IScenario> Scenarios { get; }
     public int Index { get; private set; }
     public IScenario Current => Scenarios[Index];
-    public bool Finished { get; private set; }
+    public bool HasNext => Index < Scenarios.Count - 1;
     public bool Waiting { get; private set; }
-    private float remaining;
+    private float untilNext;
 
-    public ScenarioSequence(IReadOnlyList<IScenario> scenarios)
+    public ScenarioSequence(IScenarioSequence sequence, RunScenarioParams requested)
     {
-        if (scenarios.Count == 0 || scenarios.Any(s => s is IScenarioSequence || s.Duration is not > 0 || !float.IsFinite(s.Duration)))
-            throw new ArgumentException("A sequence requires scenarios with finite positive durations.");
-        Scenarios = scenarios.ToArray();
+        if (sequence.Scenarios.Count == 0) throw new ArgumentException("A sequence needs at least one scenario.");
+        Requested = requested;
+        Scenarios = sequence.Scenarios;
     }
 
-    public IScenario? Tick(float timelineElapsed, float deltaSeconds, bool failed)
+    // Only the first step keeps the requested seed: the party was seated from it.
+    public RunScenarioParams CurrentParams => Requested with
     {
-        if (Finished) return null;
-        if (failed) { Finished = true; Waiting = false; return null; }
-        if (!Waiting)
-        {
-            if (timelineElapsed < Current.Duration) return null;
-            if (Index == Scenarios.Count - 1) { Finished = true; return null; }
-            Waiting = true;
-            remaining = BetweenScenarios;
-            return null;
-        }
-        // Use real frame time, independent of the scenario event-speed setting.
-        remaining = MathF.Max(0, remaining - MathF.Max(0, deltaSeconds));
-        if (remaining > 0.0001f) return null;
+        Scenario = Current,
+        SelectedAi = Requested.SelectedAi is null ? null : NaStrat(Current),
+        Seed = Index == 0 ? Requested.Seed : null,
+    };
+
+    public void FinishStep()
+    {
+        Waiting = true;
+        untilNext = BetweenScenarios;
+    }
+
+    // True once the pause after a finished step is over.
+    public bool TickBetweenSteps(float deltaSeconds)
+    {
+        if (!Waiting) return false;
+        untilNext -= deltaSeconds;
+        return untilNext <= 0f;
+    }
+
+    public void Advance()
+    {
+        Index++;
         Waiting = false;
-        return Scenarios[++Index];
     }
 
-    public static int AiIndex(IScenario scenario)
+    private static int NaStrat(IScenario scenario)
     {
-        for (var i = 0; i < scenario.AiStrats.Count; i++) if (scenario.AiStrats[i].Group == "NA") return i;
+        for (var i = 0; i < scenario.AiStrats.Count; i++)
+            if (scenario.AiStrats[i].Group == "NA") return i;
         return 0;
     }
 }

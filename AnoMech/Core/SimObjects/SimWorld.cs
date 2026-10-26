@@ -13,30 +13,31 @@ using AnoMech.Core.Native.Interfaces;
 
 namespace AnoMech.Core.SimObjects;
 
-// Holds the live game state Game manipulates: a children list of SimObjects
-// (party, enemies, tethers, waymarks, hidden objects). Spawn entry points
-// (CreateParty, SpawnEnemy, Tether, PlaceWaymarks, HideObject,
-// EnforceArenaBoundary) construct the SimObject and register it for teardown.
-// Zone loading and map effects go through world.Map.
+// Holds the live game state Game manipulates, in two lifetimes: Map and Party last the zone stay,
+// the children (enemies, tethers, waymarks, ...) one run, gone in Despawn. Spawn entry points
+// (ApplyParty, SpawnEnemy, Tether, PlaceWaymarks, EnforceArenaBoundary) construct the SimObject
+// and register it for teardown. Zone loading and map effects go through world.Map.
 public sealed class SimWorld : ISimObject, IDisposable
 {
     // Ownership
-    private readonly List<ISimObject> children = new();
+    private readonly SimChildren children = new();
+    private readonly EnemyList enemyList = new();
 
     // Zone loading and map effects entry point.
     public MapController Map { get; } = new();
 
     // Scenario geometry: areas party bots steer around while moving. Empty by
     // default (straight-line movement). Scenarios mutate it over their timeline
-    // (Add/Remove/Clear); wired to each doppel by PartyCreator, cleared on Despawn.
+    // (Add/Remove/Clear); bots hold this one instance across runs, cleared on Despawn.
     public ObstacleField Obstacles { get; } = new();
 
-    // Convenience reference — SimParty.Empty until CreateParty is called.
-    public SimParty Party { get; private set; } = SimParty.Empty;
+    // No members outside a zone stay. Ticked before the children, which reference it.
+    public SimParty Party { get; } = new();
     public IEnumerable<ISimObject> Children => children;
     // Root container — Game owns its lifetime; no parent reaps it.
     public bool IsActive => true;
     public EventScheduler Events { get; }
+    // The zone's origin for as long as an InstanceSession holds it; outlives the runs inside it.
     public Vector3 ScenarioOrigin { get; set; }
 
     // The run's mechanic randomness; engine noise draws from a named Stream instead, so it
@@ -87,7 +88,7 @@ public sealed class SimWorld : ISimObject, IDisposable
 
     private SimTether CreateTether(ITetherEnd from, ITetherEnd to, ushort tetherId, float duration, ushort debuffStatusId)
     {
-        var tether = new SimTether(from, to, new TetherContext(Party.Find, tetherId, Rng), debuffStatusId, duration);
+        var tether = new SimTether(from, to, new TetherContext(Party.Find, tetherId, Rng), debuffStatusId, duration, SimEvents);
         children.Add(tether);
         return tether;
     }
@@ -114,45 +115,51 @@ public sealed class SimWorld : ISimObject, IDisposable
     // many party members stand within `radius` of the EObj (counts past the
     // array length clamp to the last entry). Bound to the current Party so AI
     // and scenario movement drive the visual.
-    public SimTower? SpawnTower(EventObjectSpawnConfig config, ushort[] states, float radius)
+    public SimTower? SpawnTower(EventObjectSpawnConfig config, ushort[] states, uint stateUnk, float radius)
     {
-        var tower = SimTower.Spawn(config, Coordinates, Events, states, radius, Party);
+        var tower = SimTower.Spawn(config, Coordinates, Events, states, stateUnk, radius, Party);
         if (tower != null) children.Add(tower);
         return tower;
     }
 
-    // Places the scenario's waymark layout (scenario-local offsets). Cleared in Despawn, not a
-    // tracked child.
+    // Places the scenario's waymark layout (scenario-local offsets), replacing any markers already
+    // placed.
     public void PlaceWaymarks(IReadOnlyList<Waymark> layout)
-    {
-        foreach (var waymark in layout)
-        {
-            if (Natives.Waymarks.Set(waymark.Slot, Coordinates.ToGlobal(waymark.Offset))) continue;
-            Plugin.Log.Warning("Waymarks: MarkingController unavailable");
-            return;
-        }
-    }
-
-    // Suppress a native GameObject (by BaseId) for the duration of the scenario.
-    public void HideObject(uint baseId)
-    {
-        var hidden = SimHiddenObject.Hide(baseId);
-        if (hidden != null) children.Add(hidden);
-    }
+        => children.GetOrAdd(() => new SimWaymarks(Coordinates)).Place(layout);
 
     // Per-frame arena fence at `radius` from ScenarioOrigin. Kills any active
-    // party member (player included) who leaves the ring, and spawns a VFX border.
+    // party member (player included) who leaves the ring.
     public void EnforceArenaBoundary(float radius, string cause = "Walked out of arena")
-        => children.Add(new SimArenaBoundary(Party, this, radius, cause, showVfx: !Map.IsInInstance));
+        => children.SetSingleton(new SimArenaBoundary(Party, radius, cause));
+
+    // Where the server stops an NPC a knockback pushes: a circle this far from ScenarioOrigin. Set by
+    // the zone for the run; without it a push goes its full distance.
+    public float? NpcKnockbackStopRadius { get; private set; }
+
+    public void StopNpcKnockbacksAt(float radius) => NpcKnockbackStopRadius = radius;
+
+    // How far an NPC at `position` (scenario-local) pushed away from `from` goes, at most `distance`.
+    public float NpcPushDistance(Vector3 position, Vector3 from, float distance)
+    {
+        if (NpcKnockbackStopRadius is not { } radius) return distance;
+        var start = new Vector2(position.X, position.Z);
+        var away = start - new Vector2(from.X, from.Z);
+        if (away == Vector2.Zero) return distance;
+        var direction = Vector2.Normalize(away);
+        var along = Vector2.Dot(start, direction);
+        var discriminant = along * along - (start.LengthSquared() - radius * radius);
+        var toCircle = discriminant <= 0f ? 0f : MathF.Max(0f, -along + MathF.Sqrt(discriminant));
+        return MathF.Min(distance, toCircle);
+    }
+
+    // Plays for the rest of the run, replacing any track already playing.
+    public void PlayBgm(ushort bgmId, float secondsIn = 0f)
+        => children.SetSingleton(new SimBgm()).Play(bgmId, secondsIn);
 
     // True when `local` (scenario-local) is outside the active arena fence; false
     // when the current scenario enforces no boundary.
     public bool IsOutsideArena(Vector3 local)
-        => children.OfType<SimArenaBoundary>().FirstOrDefault()?.IsOutside(local) ?? false;
-
-    // Mirrored to peers by MultiplayerManager (host only, so a replayed SpawnOmen doesn't loop):
-    // an omen isn't a SimObject the snapshot sync walks.
-    public event Action<string, Placement, Vector3, float>? OmenSpawned;
+        => children.Singleton<SimArenaBoundary>()?.IsOutside(local) ?? false;
 
     // A scenario message the whole party should see (which arrow was missed, why everyone just
     // died). Printed here and mirrored to peers, which have no other channel for mid-run text.
@@ -164,104 +171,56 @@ public sealed class SimWorld : ISimObject, IDisposable
         Announced?.Invoke(text);
     }
 
-    // Spawns a standalone AOE telegraph (omen StaticVfx) that auto-expires after
-    // `durationSeconds` and is cleaned up on world reset. `placement` is scenario-local
-    // (like the rest of the SimXxx API); SimOmen lifts it to world coords. `scale`
-    // follows SimOmen's convention: scale.X = halfWidth, scale.Z = length for rect omens.
-    // The live count is remotely driven on a peer, and each omen holds a native VfxObject.
-    public bool CanSpawnOmen => children.Count(c => c is SimOmen) < Multiplayer.NetGuard.MaxLiveOmens;
+    // The run failed without anyone dying, e.g. a puzzle retail only punishes minutes later. Play
+    // the mechanic out as retail does; `freeze` when the scenario can't go on from here, which
+    // freezes the run 5s later as a death does.
+    public event Action<string, bool>? Failed;
 
-    // A null duration persists until the returned handle is despawned or reset.
-    // Scenery AVFX uses its authored world scale and may require a start trigger.
-    // Only timed omens are mirrored to peers: the wire format carries no handle or trigger.
-    public SimOmen SpawnOmen(string path, Placement placement, Vector3 scale,
-        float? durationSeconds = null, uint? startTrigger = null)
+    public void Fail(string reason, bool freeze = false) => Failed?.Invoke(reason, freeze);
+
+    internal SimEvents SimEvents { get; } = new();
+
+    // A one-shot VFX sheet row at a scenario-local point, e.g. FRU's Return marker (1013) under each
+    // player. Shown on this client only.
+    public void PlaceGroundVfx(uint vfxId, Vector3 position)
+        => Party.Player?.ActorControl.PlaceGroundVfx(vfxId, Coordinates.ToGlobal(position));
+
+    // Seats the run's roster, spawning only the seats that changed since the last run. Must be
+    // called after ScenarioOrigin is set and the run reseeded: the spawn ring draws from it.
+    public void ApplyParty(IReadOnlyList<PartySlot?> roster)
     {
-        var omen = new SimOmen(Coordinates, path, placement, scale, durationSeconds, startTrigger);
-        children.Add(omen);
-        if (durationSeconds is { } duration && startTrigger is null)
-            OmenSpawned?.Invoke(path, placement, scale, duration);
-        return omen;
+        SeatParty(roster);
+        Party.SetInCombat(true);
     }
 
-    public void SpawnOmen(uint actionId, Placement placement, float durationSeconds)
-        => SpawnActionOmen(actionId, placement.Position, placement.Rotation, durationSeconds);
-
-    // Standalone telegraph derived from `actionId`'s own Omen sheet entry (shape/scale
-    // read from Action.CastType/EffectRange/XAxisModifier), for a boss ability whose real
-    // telegraph is duty-scripted rather than driven by the caster's own cast. SimCast
-    // bypasses Character::StartCast, so the native auto-omen never fires on its own.
-    public void SpawnActionOmen(uint actionId, Vector3 origin, float rotation, float durationSeconds)
-        => children.Add(new SimOmen(Coordinates, actionId, origin, rotation, durationSeconds));
-
-    // Change the active weather mid-scenario. weatherId is a Weather-sheet row;
-    // transition is the fade-in time in seconds. A scenario's default weather
-    // (TargetInstance.WeatherId) is re-applied automatically on restart, so any
-    // mid-run change made here is reset whenever the scenario is run again.
-    public void SetWeather(byte weatherId, float transition = 0.5f)
-        => Map.SetWeather(weatherId, transition);
-
-    // Spawns the eight party slots and wires in the local player. Must be called
-    // after ScenarioOrigin is set. Party is added first so it despawns last in
-    // Reset's reverse-order teardown (tethers and enemies reference slot positions).
-    // networkRoles: multiplayer slots claimed by other real participants — see
-    // PartyCreator.Populate.
-    public void CreateParty(uint playerJob, PartyRole? roleOverride = null, bool solo = false, IReadOnlySet<PartyRole>? networkRoles = null, IReadOnlyDictionary<PartyRole, NetworkSeat>? networkSeats = null, byte? levelOverride = null)
-    {
-        var party = new SimParty();
-        PartyCreator.Populate(party, new SimPlayer(Coordinates), playerJob, this, roleOverride, solo, networkRoles, networkSeats, levelOverride);
-        party.SetInCombat(true);
-        children.Add(party);
-        Party = party;
-    }
-
-    public SimMapEffect SpawnMapEffect(byte index, uint show, uint hide)
-    {
-        var effect = new SimMapEffect(Map, index, show, hide);
-        children.Add(effect);
-        return effect;
-    }
-
-    // Mirrored to peers by MultiplayerManager, like OmenSpawned.
-    public event Action<uint>? VoiceLineSpawned;
-
-    public SimVoiceLine SpawnVoiceLine(uint voiceId)
-    {
-        var voice = new SimVoiceLine(voiceId);
-        children.Add(voice);
-        VoiceLineSpawned?.Invoke(voiceId);
-        return voice;
-    }
-
-    // Add late support bots to the existing party so damage, HUD, arena bounds,
-    // and reset all retain the same party owner and player slot.
-    public void FillMissingPartyMembers(Func<PartyRole, Placement> placement, byte? levelOverride = null)
-        => PartyCreator.FillMissing(Party, this, placement, levelOverride);
+    // ApplyParty without entering combat: the party standing in the zone before a run starts.
+    public void SeatParty(IReadOnlyList<PartySlot?> roster) => Party.Apply(roster, this);
 
     public void Tick(float deltaSeconds)
     {
         Map.Tick();
-        Natives.VfxSpawnLog.Tick();
-        Natives.BattleCharas.SweepOrphans();
+        Party.Tick(deltaSeconds);
         children.Update(deltaSeconds);
-        Natives.EnmityHud.Refresh(children.OfType<SimEnemy>(), deltaSeconds);
-        Natives.PartyHud.Refresh(Party);
+        enemyList.Tick(children.OfType<SimEnemy>(), deltaSeconds);
+        SimEvents.Dispatch();
     }
 
+    // The run's teardown; the party stays. The listener goes first, so the teardown raises nothing.
     public void Despawn()
     {
+        SimEvents.Clear();
         children.Despawn();
-        Party = SimParty.Empty;
-        Natives.EnmityHud.Clear();
-        Natives.PartyHud.Clear();
-        Natives.Markings.ClearAll();
-        Natives.Waymarks.ClearAll();
+        enemyList.Clear();
         Obstacles.Clear();
-        ScenarioOrigin = default;
+        NpcKnockbackStopRadius = null;
+        Party.EndRun();
     }
+
+    public void DespawnParty() => Party.Despawn();
 
     public void Dispose()
     {
         Despawn();
+        DespawnParty();
     }
 }

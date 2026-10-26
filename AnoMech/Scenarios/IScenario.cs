@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using AnoMech.Core.Game;
 using AnoMech.Core.Game.Ai;
 using AnoMech.Core.SimObjects;
 
@@ -6,7 +7,7 @@ namespace AnoMech.Scenarios;
 
 // The mechanic timeline for one encounter fragment. Shared identity lives on the owning
 // IZone (via Phase.Zone) and IPhase; a scenario declares only what is its own.
-public interface IScenario
+public interface IScenario : IWorldEventListener
 {
     string Name { get; }
 
@@ -25,10 +26,6 @@ public interface IScenario
 
     // How far into the phase's track the real fight is when this scenario starts.
     float BgmSecondsAtStart => 0f;
-
-    // Authored cleanup time on the event clock, used by sequential practice.
-    // Scenarios without a declared end cannot be included in a sequence.
-    float Duration => 0;
 
     void Run(SimWorld world, int? selectedAi);
     void Tick(float delta, float elapsed) { }
@@ -55,11 +52,26 @@ public interface IScenario
     IReadOnlyList<string> SettingsConflicts => [];
 
     // Deterministic instance-progress replay (native DirectorUpdate/AddEffect calls) with no
-    // host-only dependency, so Game.RunScenarioInternal schedules it for a peer too.
+    // host-only dependency, so ScenarioSession.Start schedules it for a peer too.
     void RunInstanceEvents(SimWorld world) { }
 }
 
+// A menu entry that runs its scenarios back to back, solo, each with its NA strat.
 public interface IScenarioSequence : IScenario
 {
     IReadOnlyList<IScenario> Scenarios { get; }
+}
+
+public static class ScenarioExtensions
+{
+    // Menu label, e.g. "P5 Delta".
+    public static string DisplayName(this IScenario scenario)
+    {
+        if (scenario is IScenarioSequence) return scenario.Name;
+        var phase = scenario.Phase;
+        return string.IsNullOrEmpty(phase.Name) ? scenario.Name : $"{phase.Name} {scenario.Name}";
+    }
+
+    public static string FullName(this IScenario scenario)
+        => $"{scenario.Phase.Zone.Name} — {scenario.DisplayName()}";
 }

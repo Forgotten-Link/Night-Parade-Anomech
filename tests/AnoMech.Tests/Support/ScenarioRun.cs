@@ -7,8 +7,10 @@ using AnoMech.Scenarios;
 
 namespace AnoMech.Tests;
 
-// ActionId is null for a death through the obsolete Die(string).
-internal sealed record Death(PartyRole Role, string Cause, uint? ActionId, float Time, string Snapshot);
+// ActionId is null for a death no action dealt: StatusId names the status for DieOfStatus, neither for the obsolete Die(string).
+internal sealed record Death(PartyRole Role, string Cause, uint? ActionId, ushort? StatusId, float Time, string Snapshot);
+
+internal sealed record MechanicFailure(string Reason, float Time);
 
 internal sealed record ScenarioRunOptions
 {
@@ -36,25 +38,31 @@ internal sealed record ScenarioRunOptions
 
     // Hits check a human player's mitigation only with the UserActions module on.
     public bool UserActionsEnabled { get; init; }
+
+    // Writes what the sim sent to the fakes here, as a replay-timeline-shaped CSV (SimTimeline).
+    public string? TimelinePath { get; init; }
+
+    // Edits the plugin configuration before the run.
+    public Action<Configuration>? Configure { get; init; }
 }
 
 // From the first player takeover on, the player stops following the AI, as a human who froze there
 // would; knockbacks and forced moves still apply. A bot (`Bot` set) is only put somewhere: its AI
-// moves it on at its next step. `TeleportTo` is scenario-local XZ; `Facing` uses Placement's
-// convention (0 = +Z).
-internal sealed record Takeover(float At, Vector2? TeleportTo, float? Facing = null, PartyRole? Bot = null);
+// moves it on at its next step. `TeleportTo` is scenario-local XZ, at height `Y`; `Facing` uses
+// Placement's convention (0 = +Z).
+internal sealed record Takeover(float At, Vector2? TeleportTo, float? Facing = null, PartyRole? Bot = null, float Y = 0f);
 
 // One headless scenario run: every seat (the player's included) on the strat's AI, on a fresh
 // fake game, ticked at a fixed rate until it ends.
 internal sealed record ScenarioRun(
     Type ScenarioType, int Strat, int Seed, PartyRole PlayerRole, float Elapsed, IReadOnlyList<Death> Deaths,
-    string? Failure, IReadOnlyList<string> Warnings, string? ArtifactDirectory)
+    IReadOnlyList<MechanicFailure> MechanicFailures, string? Failure, IReadOnlyList<string> Warnings, string? ArtifactDirectory)
 {
     public const float FrameSeconds = 1f / 60f;
     public const float TimeoutSeconds = 600f;
     private const float AoeCheckWindowSeconds = 1f;
 
-    public bool Passed => Failure is null && Deaths.Count == 0;
+    public bool Passed => Failure is null && Deaths.Count == 0 && MechanicFailures.Count == 0;
 
     public static ScenarioRun Execute(Type scenarioType, int strat, int seed, ScenarioRunOptions? options = null)
     {
@@ -63,10 +71,13 @@ internal sealed record ScenarioRun(
         fake.UserActions.Enabled = options.UserActionsEnabled;
         Game? game = null;
         var log = TraceLog.Create(() => game?.World.Events.Elapsed ?? 0f);
+        fake.Timeline.Clock = () => game?.World.Events.Elapsed ?? 0f;
+        fake.Timeline.Source = () => log.LastFired;
         var role = options.PlayerRole ?? (PartyRole)new Rng(seed).Fork("player-seat").Next(8);
         // A real player's job always fits their seat; job-keyed actions read it.
         fake.BattleCharas.Player.ClassJob = PartyPresets.Standard[(int)role].ClassJob;
         var deaths = new List<Death>();
+        var mechanicFailures = new List<MechanicFailure>();
         var aoeChecks = new List<AoeCheck>();
         var elapsed = 0f;
         var nextTakeover = 0;
@@ -90,30 +101,34 @@ internal sealed record ScenarioRun(
         }
 
         DalamudServices.Install(nameof(Plugin.Log), log);
-        DalamudServices.Install(nameof(Plugin.Config), new Configuration());
+        var config = new Configuration();
+        options.Configure?.Invoke(config);
+        DalamudServices.Install(nameof(Plugin.Config), config);
         DebugBotControl.Enabled = true;
         PerRole.ForceSeats = true;
         AoeQuery.Evaluated += OnAoeEvaluated;
         game = new Game();
-        DalamudServices.Install(nameof(Plugin.GameInstance), game);
+        DalamudServices.Install(nameof(Plugin.Game), game);
         var probe = new ScenarioProbe(game, log, RecentAoeChecks);
         try
         {
-            scenario = game.Scenarios.Single(s => s.GetType() == scenarioType);
-            game.PartyMemberKilled += (r, cause, actionId) =>
+            scenario = game.Catalog.Scenarios.Single(s => s.GetType() == scenarioType);
+            game.PartyMemberKilled += (r, cause, actionId, statusId) =>
             {
                 var snapshot = WorldSnapshot.Describe(game.World, RecentAoeChecks(), game.World.Party.Get(r), includeHidden: true);
-                deaths.Add(new Death(r, cause, actionId, game.World.Events.Elapsed, snapshot));
+                deaths.Add(new Death(r, cause, actionId, statusId, game.World.Events.Elapsed, snapshot));
             };
+            game.MechanicFailed += reason => mechanicFailures.Add(new MechanicFailure(reason, game.World.Events.Elapsed));
             if (options.Overrides is { } setOverrides)
                 setOverrides(scenario.SettingsOverrides
                              ?? throw new InvalidOperationException($"{scenarioType.Name} has no settings overrides."));
-            game.RunScenario(new RunScenarioParams(scenario, role, strat, 0, seed));
+            game.ZoneIn(scenario.Phase.Zone, SessionMode.Local);
+            game.StartScenario(new RunScenarioParams(scenario, new LocalPartyProvider { RoleOverride = role }, strat, 0, seed));
             fake.Frame(FrameSeconds, game.Tick);
-            if (!game.IsScenarioActive)
+            if (game.Status < SessionStatus.Running)
                 failure = "did not start";
 
-            while (failure is null && !game.HasScenarioSucceeded && !game.Paused)
+            while (failure is null && game.Status is not (SessionStatus.Succeeded or SessionStatus.CompletedFailed or SessionStatus.Frozen))
             {
                 if (elapsed >= TimeoutSeconds)
                 {
@@ -139,10 +154,12 @@ internal sealed record ScenarioRun(
         }
 
         var endTime = game.World.Events.Elapsed;
+        if (options.TimelinePath is { } timelinePath)
+            fake.Timeline.Write(timelinePath);
         string? artifacts = null;
         try
         {
-            var run = new ScenarioRun(scenarioType, strat, seed, role, endTime, deaths, failure, log.Warnings, null);
+            var run = new ScenarioRun(scenarioType, strat, seed, role, endTime, deaths, mechanicFailures, failure, log.Warnings, null);
             if ((!run.Passed && options.WriteArtifactsOnFailure) || options.AlwaysWriteArtifacts)
             {
                 var final = WorldSnapshot.Describe(game.World, RecentAoeChecks());
@@ -156,7 +173,7 @@ internal sealed record ScenarioRun(
             PerRole.ForceSeats = false;
             game.Dispose();
         }
-        return new ScenarioRun(scenarioType, strat, seed, role, endTime, deaths, failure, log.Warnings, artifacts);
+        return new ScenarioRun(scenarioType, strat, seed, role, endTime, deaths, mechanicFailures, failure, log.Warnings, artifacts);
     }
 
     private static void TakeOver(SimWorld world, Takeover takeover, TraceLog log)
@@ -166,7 +183,7 @@ internal sealed record ScenarioRun(
         if (world.Party.Get(role) is not { } member) return;
         member.StopMoving();
         if (takeover.TeleportTo is { } to)
-            member.SetPosition(new Vector3(to.X, 0f, to.Y));
+            member.SetPosition(new Vector3(to.X, takeover.Y, to.Y));
         if (takeover.Facing is { } facing)
             member.SetRotation(facing);
         log.Add("TEST", $"{(takeover.Bot is null ? "player" : "bot")} {role} taken over"
@@ -188,6 +205,7 @@ internal sealed record ScenarioRun(
         var lines = new List<string> { $"seed {Seed} (player {PlayerRole}, t={Elapsed:F1}):" };
         if (Failure is not null) lines.Add($"  {Failure}");
         lines.AddRange(Deaths.Select(d => $"  {d.Role} died at t={d.Time:F2}: {d.Cause}"));
+        lines.AddRange(MechanicFailures.Select(f => $"  mechanic failed at t={f.Time:F2}: {f.Reason}"));
         lines.AddRange(Warnings.Distinct().Select(w => $"  warning: {w}"));
         if (ArtifactDirectory is not null) lines.Add($"  details: {ArtifactDirectory}");
         return string.Join(Environment.NewLine, lines);

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using AnoMech.Core.SimObjects;
 
 namespace AnoMech.Core.EnemyActions;
@@ -13,36 +14,36 @@ public abstract record Distribution
     public static Distribution Stack(int min, Hit? understacked = null)
         => new WildChargeDistribution(0, min, null, understacked);
 
-    // The `front` nearest the origin take `frontHit`, the rest the cast's hit. With `min`, too few in
+    // The `front` first in `hits` take `frontHit`, the rest the cast's hit. With `min`, too few in
     // it and everyone takes `understacked` instead (Lethal by default).
     public static Distribution WildCharge(int front, int? min = null, Hit? frontHit = null, Hit? understacked = null)
         => new WildChargeDistribution(front, min, frontHit, understacked);
 
     public static Distribution Falloff(float lethalWithin) => new FalloffDistribution(lethalWithin);
 
-    // `index` is the target's place in ctx.Hits, nearest the origin first. The reason is said of a
+    // `index` is the target's place in `hits`, front first: nearest the origin, or furthest up a line. The reason is said of a
     // death the hit deals.
-    internal abstract (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, int index, SimCharacter target);
+    internal abstract (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, IReadOnlyList<SimCharacter> hits, int index, SimCharacter target);
 }
 
 internal sealed record EachDistribution : Distribution
 {
-    internal override (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, int index, SimCharacter target) => (null, null);
+    internal override (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, IReadOnlyList<SimCharacter> hits, int index, SimCharacter target) => (null, null);
 }
 
 internal sealed record WildChargeDistribution(int Front, int? Min, Hit? FrontHit, Hit? Understacked) : Distribution
 {
-    internal override (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, int index, SimCharacter target)
+    internal override (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, IReadOnlyList<SimCharacter> hits, int index, SimCharacter target)
     {
-        if (ctx.Hits.Count < Min)
-            return (Understacked ?? Severity.Lethal, $"{ctx.Hits.Count}/{Min} players in stack");
+        if (hits.Count < Min)
+            return (Understacked ?? Severity.Lethal, $"{hits.Count}/{Min} players in stack");
         return (index < Front ? FrontHit : null, null);
     }
 }
 
 internal sealed record FalloffDistribution(float LethalWithin) : Distribution
 {
-    internal override (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, int index, SimCharacter target)
+    internal override (Hit? Hit, string? Reason) Assign(EnemyActionContext ctx, IReadOnlyList<SimCharacter> hits, int index, SimCharacter target)
     {
         var dx = target.Position.X - ctx.Origin.Position.X;
         var dz = target.Position.Z - ctx.Origin.Position.Z;

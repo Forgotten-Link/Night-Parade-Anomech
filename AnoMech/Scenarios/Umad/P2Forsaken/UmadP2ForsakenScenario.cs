@@ -46,6 +46,7 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
         new UmadP2ForsakenLpduBuddiesAi(),
         new UmadP2ForsakenP3ZBuddyMeowAi(),
         new UmadP2ForsakenZP6SouthAdjustAi(),
+        new UmadP2ForsakenYanAi(),
     ];
 
     // NA holds the existing strats; EU holds this branch's new strats — isolated copies
@@ -72,10 +73,9 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
         party = worldParam.Party;
         state = new UmadP2ForsakenState(world.Rng, party, settingsWindow.Overrides);
         LastState = state;
+        lastBroadcastLockonsKey = null;
         if (selectedAi is { } idx && idx >= 0 && idx < AiStrats.Count)
             ((IScenarioAi<UmadP2ForsakenState>)AiStrats[idx]).Run(state, world);
-        
-        
         Run_Kefka_40004FD3();
         Run_Kefka_40004FAC();
         Run_Kefka_40004FD0();
@@ -136,23 +136,30 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
         world.Events.Add(11.04f, () => party.ForEachActive(c => c.AttachLockonVfx(state.Lockons[((ISimPartyMember)c).Role]))); 
     }
 
+    public void OnActionResolved(ActionResolved resolved)
+    {
+        Towers.ResolveTower(world, resolved, ActionId.ThePathOfLight, UmadActions.TheRiverOfLight, minSoakers: 2);
+        ResolveSoakers(resolved);
+    }
+
     public void Tick(float delta, float elapsed) { }
     
     private void Run_Kefka_40004FD3()
     {
-        SimEnemy? kefka_40004FD3 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.GodKefka, NameId: BNpcNameId.Kefka, Level: 100, Targetable: true, EnemyList: EnemyListMode.Always, Visibility: SpawnVisibility.Visible, Placement: new Placement(new Vector3(0.000f, 0.000f, 0.000f), 0.000f)));
-        foreach (var at in new[] { 1.30f, 11.35f, 14.39f, 17.43f, 20.47f, 23.51f })
+        SimEnemy? kefka_40004FD3 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.GodKefka, NameId: BNpcNameId.Kefka, Level: 100, Targetable: true, EnemyList: EnemyListMode.Always, Visibility: SpawnVisibility.Visible, LayoutId: BNpcLayoutId.GodKefka, Placement: new Placement(new Vector3(0.000f, 0.000f, 0.000f), 0.000f)));
+        foreach (var at in new[] { 1.30f, 11.35f, 14.39f, 17.43f, 20.47f, 24.50f })
             world.Events.Add(at, () => kefka_40004FD3?.Cast(UmadActions.AutoAttack, party.Get(PartyRole.OffTank)));
         world.Events.Add(2.46f, () => kefka_40004FD3?.Cast(UmadActions.Forsaken));
-        world.Events.Add(9.43f, () => world.SetWeather(89));
+        world.Events.Add(10.38f, () => world.Map.SetWeather(89, transition: 2f));
         
         RunKefkaEndAttack(kefka_40004FD3, 0, 25.61f);
-        RunKefkaEndAttack(kefka_40004FD3, 1, 46.52f);
-        RunKefkaEndAttack(kefka_40004FD3, 2, 67.39f);
-        RunKefkaEndAttack(kefka_40004FD3, 3, 88.36f);
+        RunKefkaEndAttack(kefka_40004FD3, 1, 46.75f);
+        RunKefkaEndAttack(kefka_40004FD3, 2, 67.76f);
+        RunKefkaEndAttack(kefka_40004FD3, 3, 88.81f);
         
         world.Events.Add(109.47f, () => kefka_40004FD3?.Cast(UmadActions.AutoAttack, party.Get(PartyRole.OffTank)));
-        world.Events.Add(110.58f, () => kefka_40004FD3?.Cast(UmadActions.LightOfJudgment));
+        world.Events.Add(110.84f, () => kefka_40004FD3?.Cast(UmadActions.LightOfJudgment));
+        world.Events.Add(116.40f, () => world.Map.SetWeather(79, transition: 0f));
     }
     
    private IReadOnlyList<SimCharacter> EndAttackTargets = [];
@@ -169,6 +176,7 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
         });
         world.Events.Add(start + 12.8f, () => kefka_40004FD3?.Face(party.Player));
         world.Events.Add(start + 12.9f, () => kefka_40004FD3?.Cast(end.AllThingsEnding));
+        world.Events.Add(start + 18f, () => kefka_40004FD3?.Face(party.Get(PartyRole.OffTank)));
     }
 
     private void RunTower(SimEnemy? enemy1, SimEnemy? enemy2, float start, int index)
@@ -179,48 +187,33 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
         world.Events.Add(start - 1f, () => enemy2?.SetPosition(d2.Apply(new Placement(new Vector3(0.000f, 0.000f, -8.000f), 0))));
         world.Events.Add(start, () =>
         {
-            if (enemy1 == null || enemy2 == null) return;
-            var soakers1 = enemy1.Cast(UmadActions.ThePathOfLight).Hits.Select(h => h.Who).ToList();
-            var soakers2 = enemy2.Cast(UmadActions.ThePathOfLight).Hits.Select(h => h.Who).ToList();
-            if (soakers1.Count != 2 || soakers2.Count != 2) return;
-            ResolveTower(soakers1[0], 0);
-            ResolveTower(soakers1[1], 1);
-            ResolveTower(soakers2[0], 2);
-            ResolveTower(soakers2[1], 3);
-            ReapplyLockons([soakers1[0], soakers1[1], soakers2[0], soakers2[1]], index);
+            towerRound = index;
+            enemy1?.Cast(UmadActions.ThePathOfLight);
+            enemy2?.Cast(UmadActions.ThePathOfLight);
         });
     }
-    
-    private void ReapplyLockons(SimCharacter[] characters, int index)
+
+    // The round whose towers resolve next: each tower's soakers take its lockons from the state.
+    private int towerRound;
+
+    // UNVERIFIED: a tower resolves whatever its pair does; no pull fails one tower alone.
+    private void ResolveSoakers(ActionResolved resolved)
     {
-       var list = state.ReassignLockonsInRoleOrder
-           ? characters.OrderBy(c => ((ISimPartyMember)c).Role).ToList()
-           : world.Rng.Shuffle(characters).ToList();
-       uint[] lockons = index switch
-       {
-           6 => [LockonId.ForsakenStack, LockonId.ForsakenStack, LockonId.ForsakenCone, LockonId.ForsakenStack],
-           _ when index % 2 == 0 => [LockonId.ForsakenCone, LockonId.ForsakenCone, LockonId.ForsakenChariot, LockonId.ForsakenChariot], 
-           _ when index % 2 == 1 => [LockonId.ForsakenStack, LockonId.ForsakenStack, LockonId.ForsakenCone, LockonId.ForsakenChariot],
-           _ => throw new ArgumentOutOfRangeException(nameof(index), index, null)
-       };
-       String s = "";
-       for (int i = 0; i < 4; i++)
-       {
-           list[i].AddStatus(StatusId.SpellsTrouble, duration: 999f, stacks: -1);
-           var role = (list[i] as ISimPartyMember)!.Role;
-           if (list[i].HasStatus(StatusId.SpellsTrouble))
-           {
-               list[i].AttachLockonVfx(lockons[i]);
-               state.Lockons[role] = lockons[i];
-               s += $"{role}={lockons[i]},";
-           }
-           else 
-           {
-               state.Lockons[role] = 0;
-               s += $"{role}=0,";
-           }
-       }
-       DiagnosticLog.Info($"Lockons reassignment {s}");
+        if (resolved.Action.ActionId != ActionId.ThePathOfLight || resolved.Hits.Count != 2) return;
+        var tower = resolved.Caster == firstTower ? 0 : 1;
+        for (var i = 0; i < resolved.Hits.Count; i++) ResolveTower(resolved.Hits[i], tower * 2 + i);
+        var lockons = state.TowerLockons[towerRound * 2 + tower];
+        foreach (var (soaker, lockon) in resolved.Hits.OrderBy(h => ((ISimPartyMember)h).Role).Zip(lockons))
+            world.Events.Add(0.6f, () => ReassignLockon(soaker, lockon));
+    }
+
+    private void ReassignLockon(SimCharacter soaker, uint lockon)
+    {
+        var role = ((ISimPartyMember)soaker).Role;
+        soaker.AddStatus(StatusId.SpellsTrouble, duration: 999f, stacks: -1);
+        state.Lockons[role] = soaker.HasStatus(StatusId.SpellsTrouble) ? lockon : 0;
+        if (state.Lockons[role] != 0) soaker.AttachLockonVfx(lockon);
+        DiagnosticLog.Info($"Lockon reassignment {role}={state.Lockons[role]}");
     }
     
     private void ResolveTower(SimCharacter character, int index)
@@ -228,35 +221,42 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
         var lockon = state.Lockons[((ISimPartyMember)character).Role];
         world.Events.Add(0.6f, () =>
         {
-            var position = character.Placement();
-            var closest = party.Find.Closest(character.Position, character);
-            if (closest != null) position = position.Face(closest.Position);
-            towerHelper[index]?.SetPosition(position);
-            var action = lockon switch
+            var helper = towerHelper[index];
+            switch (lockon)
             {
-                LockonId.ForsakenStack => UmadActions.Spelldriver,
-                LockonId.ForsakenChariot => UmadActions.Spellscatter,
-                LockonId.ForsakenCone => UmadActions.Spellwave,
-                _ => null,
-            };
-            if (action != null) towerHelper[index]?.Cast(action);
+                case LockonId.ForsakenStack:
+                    helper?.Cast(UmadActions.Spelldriver, character);
+                    break;
+                case LockonId.ForsakenChariot:
+                    helper?.Cast(UmadActions.Spellscatter, character);
+                    break;
+                case LockonId.ForsakenCone:
+                    var position = character.Placement();
+                    var closest = party.Find.Closest(character.Position, character);
+                    if (closest != null) position = position.Face(closest.Position);
+                    helper?.SetPosition(position);
+                    helper?.Cast(UmadActions.Spellwave);
+                    break;
+            }
         });
     }
     
    private readonly List<SimEnemy?> towerHelper = [];
     
+    private SimEnemy? firstTower, secondTower;
+
     private void Run_Kefka_40004FAC()
     {
-        SimEnemy? towerHelper1 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.KefkaHelper, NameId: BNpcNameId.Kefka, Level: 1, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.InvisibleHelper, Placement: new Placement(new Vector3(0.000f, 0.000f, -10.000f), 0.000f)));
-        SimEnemy? towerHelper2 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.KefkaHelper, NameId: BNpcNameId.Kefka, Level: 1, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.InvisibleHelper, Placement: new Placement(new Vector3(0.000f, 0.000f, -10.000f), 0.000f)));
-        RunTower(towerHelper1, towerHelper2, 22.66f, 0);
-        RunTower(towerHelper1, towerHelper2, 32.67f, 1);
-        RunTower(towerHelper1, towerHelper2, 43.71f, 2);
-        RunTower(towerHelper1, towerHelper2, 53.72f, 3);
-        RunTower(towerHelper1, towerHelper2, 64.76f, 4);
-        RunTower(towerHelper1, towerHelper2, 74.77f, 5);
-        RunTower(towerHelper1, towerHelper2, 85.81f, 6);
-        RunTower(towerHelper1, towerHelper2, 95.82f, 7);
+        firstTower = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.KefkaHelper, NameId: BNpcNameId.Kefka, Level: 1, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.InvisibleHelper, Placement: new Placement(new Vector3(0.000f, 0.000f, -10.000f), 0.000f)));
+        secondTower = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.KefkaHelper, NameId: BNpcNameId.Kefka, Level: 1, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.InvisibleHelper, Placement: new Placement(new Vector3(0.000f, 0.000f, -10.000f), 0.000f)));
+        RunTower(firstTower, secondTower, 22.66f, 0);
+        RunTower(firstTower, secondTower, 32.67f, 1);
+        RunTower(firstTower, secondTower, 43.71f, 2);
+        RunTower(firstTower, secondTower, 53.72f, 3);
+        RunTower(firstTower, secondTower, 64.76f, 4);
+        RunTower(firstTower, secondTower, 74.77f, 5);
+        RunTower(firstTower, secondTower, 85.81f, 6);
+        RunTower(firstTower, secondTower, 95.82f, 7);
         
         towerHelper.Clear();
         for (int i = 0; i < 4; i++)
@@ -285,11 +285,11 @@ public sealed class UmadP2ForsakenScenario : IMultiplayerReplayable
     {
         for (int i = 0; i < 3; i++)
         {
-            SimEnemy? kefka_40004FD0 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.KefkaClone, NameId: BNpcNameId.Kefka, Level: 100, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.HiddenUntilShown, Placement: new Placement(new Vector3(0.000f, 0.000f, 0.000f), 0.000f)));
+            SimEnemy? kefka_40004FD0 = world.SpawnEnemy(new EnemySpawnConfig(BNpcBaseId: BNpcBaseId.KefkaClone, NameId: BNpcNameId.Kefka, Level: 100, Targetable: false, EnemyList: EnemyListMode.Never, Visibility: SpawnVisibility.HiddenUntilShown, LayoutId: BNpcLayoutId.KefkaClone, Placement: new Placement(new Vector3(0.000f, 0.000f, 0.000f), 0.000f)));
             RunCloneEndAttack(kefka_40004FD0, 32.35f, 0, i);
-            RunCloneEndAttack(kefka_40004FD0, 53.36f, 1, i);
-            RunCloneEndAttack(kefka_40004FD0, 74.24f, 2, i);
-            RunCloneEndAttack(kefka_40004FD0, 95.06f, 3, i);
+            RunCloneEndAttack(kefka_40004FD0, 53.59f, 1, i);
+            RunCloneEndAttack(kefka_40004FD0, 74.61f, 2, i);
+            RunCloneEndAttack(kefka_40004FD0, 95.51f, 3, i);
         }
     }
 

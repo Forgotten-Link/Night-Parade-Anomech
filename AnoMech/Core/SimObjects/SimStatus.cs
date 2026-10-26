@@ -1,4 +1,5 @@
 using System;
+using AnoMech.Core.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 
 namespace AnoMech.Core.SimObjects;
@@ -6,24 +7,28 @@ namespace AnoMech.Core.SimObjects;
 public sealed class SimStatus : ISimObject
 {
     private readonly SimCharacter target;
-    private readonly bool native;
     private float duration;
     private float elapsed;
 
     public ushort StatusId { get; }
     public GameObjectId SourceObject { get; }
+
+    // Who the client is told applied it; unlike SourceObject, not part of the status's identity.
+    internal GameObjectId? ShownSource { get; set; }
     public bool IsActive { get; private set; }
     public ushort Stacks { get; private set; }
 
-    // Distinguishes a re-added status from one refreshed in place: only the add goes through
-    // the engine's gain path, which is what applies a param-driven look.
-    private static int nextInstance;
-    public int Instance { get; } = ++nextInstance;
+    // The StatusManager slot the client shows it in; -1 for a status the client never sees.
+    internal int Slot { get; }
 
-    // 0 = permanent until removed, so a peer replicating it gets the same behaviour.
+    // In effect for the sim but left out of the status list until Reveal, like a status the server
+    // only shows the client with the action's EffectResult.
+    internal bool Hidden { get; private set; }
+
+    // 0 = permanent until removed.
     public float RemainingTime => duration > 0f ? Math.Max(0f, duration - elapsed) : 0f;
 
-    internal SimStatus(SimCharacter target, ushort statusId, float duration, ushort stacks, GameObjectId sourceObject = default)
+    internal SimStatus(SimCharacter target, ushort statusId, float duration, ushort stacks, GameObjectId sourceObject, int slot, bool hidden)
     {
         this.target = target;
         this.duration = duration;
@@ -31,8 +36,22 @@ public sealed class SimStatus : ISimObject
         SourceObject = sourceObject;
         IsActive = true;
         Stacks = stacks;
-        native = !SimOnlyStatus.Is(statusId);
-        if (native) target.Proxy?.AddStatusInit(statusId, stacks, sourceObject);
+        Slot = slot;
+        Hidden = hidden;
+    }
+
+    // Shows `applier` as the status's source, e.g. a boss's own transformation.
+    public SimStatus ShownAsFrom(SimCharacter applier)
+    {
+        ShownSource = applier.GameObjectId;
+        return this;
+    }
+
+    internal void Reveal()
+    {
+        if (!Hidden) return;
+        Hidden = false;
+        if (IsActive && Slot >= 0) target.StatusListChanged();
     }
 
     public void Reapply(float duration, int stacks)
@@ -48,25 +67,23 @@ public sealed class SimStatus : ISimObject
 
     public void Tick(float deltaSeconds)
     {
-        if (!IsActive) return;
-
-        // Advance before checking expiry: checking first let one tick write a negative
-        // RemainingTime, which the native StatusManager showed as 20s for a frame.
-        if (duration > 0f) elapsed += deltaSeconds;
-
-        if (duration > 0f && elapsed >= duration)
-        {
-            Despawn();
-            return;
-        }
-
-        if (native) target.Proxy?.ApplyStatus(StatusId, duration - elapsed, Stacks, SourceObject);
+        if (!IsActive || duration <= 0f) return;
+        elapsed += deltaSeconds;
+        if (elapsed >= duration) End(StatusLossReason.Expired);
     }
 
-    public void Despawn()
+    public void Despawn() => End(StatusLossReason.Removed);
+
+    // A null reason raises nothing: the character itself is going away, or leaving the run.
+    internal void End(StatusLossReason? reason)
     {
         if (!IsActive) return;
-        if (native) target.Proxy?.RemoveStatus(StatusId, SourceObject);
         IsActive = false;
+        if (Slot >= 0 && !Hidden)
+        {
+            target.StatusListChanged();
+            target.ActorControl.LoseEffect(StatusId, Stacks, SourceObject);
+        }
+        if (reason is { } why) target.SimEvents?.Raise(new StatusLost(target, StatusId, Stacks, why));
     }
 }

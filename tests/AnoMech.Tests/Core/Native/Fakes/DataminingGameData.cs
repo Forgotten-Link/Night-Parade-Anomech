@@ -18,6 +18,9 @@ internal sealed class DataminingGameData(FakeRsvFunctions rsv) : IGameData
     private static readonly Lazy<Sheet> ModelSkeletons = Load("ModelSkeleton");
     private static readonly Lazy<Sheet> Omens = Load("Omen");
     private static readonly Lazy<Sheet> Statuses = Load("Status");
+    private static readonly Lazy<Sheet> TerritoryTypes = Load("TerritoryType");
+    private static readonly Lazy<Sheet> ContentFinderConditions = Load("ContentFinderCondition");
+    private static readonly Lazy<Sheet> Weathers = Load("Weather");
 
     public ActionRow? Action(uint actionId)
     {
@@ -34,12 +37,18 @@ internal sealed class DataminingGameData(FakeRsvFunctions rsv) : IGameData
             row.UInt("ActionCategory"),
             row.Bool("CanTargetSelf"),
             row.Bool("CanTargetParty"),
-            row.SByte("AttackType"));
+            row.SByte("AttackType"),
+            row.Bool("TargetArea"),
+            row.Bool("IsPlayerAction"));
     }
+
+    // Every action a player presses outside PvP.
+    public static IEnumerable<uint> PlayerActionIds()
+        => Actions.Value.Ids.Where(id => Actions.Value.Row(id) is { } row && row.Bool("IsPlayerAction") && !row.Bool("IsPvP"));
 
     public KnockbackRow? Knockback(uint knockbackId)
         => Knockbacks.Value.Row(knockbackId) is { } row
-            ? new KnockbackRow(knockbackId, row.Byte("Distance"), row.Byte("Speed"))
+            ? new KnockbackRow(knockbackId, row.Byte("Distance"), row.Byte("Speed"), row.Byte("Direction"))
             : null;
 
     public ClassJobRow? ClassJob(uint classJobId)
@@ -64,12 +73,22 @@ internal sealed class DataminingGameData(FakeRsvFunctions rsv) : IGameData
 
     public StatusRow? Status(ushort statusId)
         => Statuses.Value.Row(statusId) is { } row
-            ? new StatusRow(statusId, row.Bool("LockMovement"), row.Bool("LockActions"), row.Bool("LockControl"))
+            ? new StatusRow(statusId, Resolve(row.Text("Name")) ?? "", row.Bool("LockMovement"), row.Bool("LockActions"), row.Bool("LockControl"), row.Byte("MaxStacks"))
             : null;
 
-    public string? StatusName(ushort statusId) => NonEmpty(Resolve(Statuses.Value.Row(statusId)?.Text("Name")));
+    public TerritoryTypeRow? TerritoryType(uint territoryId)
+        => TerritoryTypes.Value.Row(territoryId) is { } row
+            ? new TerritoryTypeRow(territoryId, row.UInt("ContentFinderCondition"))
+            : null;
+
+    public ContentFinderConditionRow? ContentFinderCondition(uint contentFinderConditionId)
+        => ContentFinderConditions.Value.Row(contentFinderConditionId) is { } row
+            ? new ContentFinderConditionRow(contentFinderConditionId, row.Byte("ClassJobLevelSync"))
+            : null;
 
     public string? BNpcName(uint nameId) => NonEmpty(Resolve(BNpcNames.Value.Row(nameId)?.Text("Singular")));
+
+    public bool WeatherExists(byte weatherId) => Weathers.Value.Row(weatherId) is not null;
 
     public bool FileExists(string path) => true;
 
@@ -171,6 +190,8 @@ internal sealed class DataminingGameData(FakeRsvFunctions rsv) : IGameData
                     return ReadRecord(text, ref pos);
                 }))
                 : null;
+
+        public IEnumerable<uint> Ids => rows.Keys;
 
         public int Column(string column)
             => columns.TryGetValue(column, out var index) ? index : throw new KeyNotFoundException($"{name}.csv has no column '{column}'.");

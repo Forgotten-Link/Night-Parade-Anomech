@@ -1,3 +1,4 @@
+using AnoMech.Core.Native.Implementations;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Gauge;
 
@@ -26,7 +27,8 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
     {
         if (actionType != ActionType.Action) return;
         if (PlayerJob.Current != JobId.Summoner) return;
-        var jgm = JobGaugeManager.Instance();
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         var g = &jgm->Summoner;
 
@@ -70,7 +72,8 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
     public void OnTick(float deltaSeconds)
     {
         if (PlayerJob.Current != JobId.Summoner) return;
-        var jgm = JobGaugeManager.Instance();
+        using var edit = JobGaugeEdit.Begin();
+        var jgm = edit.Gauge;
         if (jgm == null) return;
         var g = &jgm->Summoner;
 
@@ -84,7 +87,7 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
         if (g->AttunementTimer > 0)
         {
             var t = g->AttunementTimer - step;
-            if (t <= 0) { g->AttunementTimer = 0; g->Attunement = 0; }
+            if (t <= 0) { g->AttunementTimer = 0; g->AttunementCount = 0; g->AttunementType = 0; }
             else g->AttunementTimer = (ushort)t;
         }
     }
@@ -97,7 +100,8 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
 
     private static void Attune(SummonerGauge* g, byte type, byte count)
     {
-        g->Attunement = (byte)((count << 2) | type);
+        g->AttunementType = type;
+        g->AttunementCount = count;
         g->AttunementTimer = 30000;
     }
 
@@ -106,8 +110,8 @@ internal sealed unsafe class SummonerStateHandler : IUserActionHandler
         int count = g->AttunementCount;
         if (count <= 0) return;
         count--;
-        if (count == 0) { g->Attunement = 0; g->AttunementTimer = 0; }
-        else g->Attunement = (byte)((count << 2) | g->AttunementType);
+        if (count == 0) { g->AttunementType = 0; g->AttunementTimer = 0; }
+        g->AttunementCount = (byte)count;
     }
 
     private static void SpendAetherflow(SummonerGauge* g)

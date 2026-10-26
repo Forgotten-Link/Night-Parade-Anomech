@@ -27,16 +27,20 @@ public sealed record CastSpec
     public const float ActionEffectOffset = 0.3f;
 
     // How long after release the caster stays rooted while the animation plays. Read it from an
-    // in-game replay.
+    // in-game replay. Default is just a placeholder.
     public float AnimationLock { get; init; } = 0.6f;
     // How long after the bar starts the omen appears. Read it from an in-game replay.
     public float OmenDelay { get; init; }
 
-    // Only for the rare case where the in-game cast time differs from the sheet's.
+    // Only for the rare case where the in-game cast time differs from the sheet's: the bar retail
+    // shows. The ActionEffect still follows it by ActionEffectOffset.
     public float? CastSecondsOverride { get; init; }
 
     // Turns the omen, the animation and the area from the caster's facing, in radians.
     public float Rotation { get; init; }
+
+    // False for an action retail fires at a target without turning the caster to it.
+    public bool FaceTarget { get; init; } = true;
 }
 
 // The sheet's area is enough for most actions; customize it here when it isn't.
@@ -47,6 +51,10 @@ public sealed record AreaSpec
     // Donut: inner safe radius (default 0).
     // Ignored for other shapes.
     public float? Size { get; init; }
+
+    // Turns only the area from the caster's facing, in radians, for an action that hits away from
+    // where it faces and leaves the packet's rotation alone (FRU Twin Stillness' rear half).
+    public float Rotation { get; init; }
 
     // Changes the area's shape; required when the sheet's CastType is Custom.
     public CastType? CastTypeOverride { get; init; }
@@ -63,7 +71,8 @@ public sealed record AreaSpec
 public sealed record TimingSpec
 {
     // Snapshot: who is hit, when statuses land and who dies are decided here.
-    // Hard to measure; keep 0 (bar end) unless the game clearly snapshots later.
+    // Hard to measure; keep 0 (bar end) unless the game clearly snapshots later. Past
+    // CastSpec.ActionEffectOffset the ActionEffect goes out before the hits are known and shows no damage.
     public float ResolveSnapshotOffset { get; init; }
     // Visual only: when flytext shows and killed characters die, counted from the snapshot.
     // Also starts knockbacks that have no delay of their own.
