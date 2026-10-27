@@ -67,28 +67,28 @@ public class RelayGroupsTests
     [Test]
     public void ListIsKeptForItsServerAndTrustedOnlyOverEncryption()
     {
-        var config = new Configuration();
+        const string encryptedUrl = "wss://us.example.com";
+        var config = new Configuration { UseCustomRelay = true, RelayServerUrl = encryptedUrl };
         DalamudServices.Install(nameof(Plugin.Config), config);
-        var info = new RelayInfo(RelayWire.Version, false, 0, [new(0, DefaultRelay.Url, DefaultRelay.Location), new(1, "wss://de.example.com", "EU Central (Germany)")]);
+        var info = new RelayInfo(RelayWire.Version, false, 0, [new(0, encryptedUrl, "US East (Virginia)"), new(1, "wss://de.example.com", "EU Central (Germany)")]);
 
         Assert.That(RelayGroups.Known, Is.False, "nothing fetched yet");
-        RelayGroups.Learn(DefaultRelay.Url, info);
+        RelayGroups.Learn(encryptedUrl, info);
         Assert.That(RelayGroups.Current, Is.Null, "a list over plain http could have been swapped on the way");
         Assert.That(RelayGroups.Known, Is.False);
-        RelayGroups.Learn(DefaultRelay.Url, info with { Encrypted = true });
+        RelayGroups.Learn(encryptedUrl, info with { Encrypted = true });
         Assert.That(RelayGroups.Current?.Members, Has.Length.EqualTo(2));
         Assert.That(RelayGroups.Confirmed);
 
-        config.UseCustomRelay = true;
         config.RelayServerUrl = "ws://192.0.2.7:7890";
         Assert.That(RelayGroups.Current, Is.Null, "another server's list doesn't apply");
         RelayGroups.Learn(config.RelayServerUrl, info with { Group = [new(0, "ws://192.0.2.7:7890", "LAN")] });
         Assert.That(RelayGroups.Current?.Members.Single().Location, Is.EqualTo("LAN"), "a server set up unencrypted is taken at its word");
 
-        config.UseCustomRelay = false;
+        config.RelayServerUrl = encryptedUrl;
         Assert.That(RelayGroups.Current, Is.Null, "one list is kept, for the server last asked");
-        RelayGroups.Learn(DefaultRelay.Url, info with { Encrypted = true });
-        RelayGroups.Learn(DefaultRelay.Url, new RelayInfo(RelayWire.Version, false, null, null) { Encrypted = true });
+        RelayGroups.Learn(encryptedUrl, info with { Encrypted = true });
+        RelayGroups.Learn(encryptedUrl, new RelayInfo(RelayWire.Version, false, null, null) { Encrypted = true });
         Assert.That(RelayGroups.Current, Is.Null, "a server that left its group");
         Assert.That(RelayGroups.Known, "but its answer is known: a single location");
     }
