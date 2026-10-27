@@ -3,8 +3,7 @@
     "Author": "Anomek",
     "Name": "Night Parade AnoMech",
     "InternalName": "NightParadeAnoMech",
-    "AssemblyVersion": "0.4.2.106",
-    "TestingAssemblyVersion": "0.5.1.107",
+    "AssemblyVersion": "0.5.1.108",
     "MinimumDalamudVersion": "15.0.3.5",
     "Description": "Private build of AnoMech for the Night Parade group. Spawns fake party members and bosses client-side so you can practice raid mechanics.",
     "ApplicableVersion": "any",
@@ -15,7 +14,6 @@
       "simulator"
     ],
     "DalamudApiLevel": 15,
-    "TestingDalamudApiLevel": 15,
     "LoadRequiredState": 0,
     "LoadSync": false,
     "CanUnloadAsync": false,
@@ -26,9 +24,9 @@
     "IsHide": false,
     "IsTestingExclusive": false,
     "DownloadCount": 0,
-    "LastUpdate": 1793059619,
+    "LastUpdate": 1793060412,
     "DownloadLinkInstall": "https://github.com/Forgotten-Link/Night-Parade-Anomech/releases/latest/download/latest.zip",
     "DownloadLinkUpdate": "https://github.com/Forgotten-Link/Night-Parade-Anomech/releases/latest/download/latest.zip",
-    "DownloadLinkTesting": "https://github.com/Forgotten-Link/Night-Parade-Anomech/releases/download/v0.5.1.107/latest.zip"
+    "DownloadLinkTesting": "https://github.com/Forgotten-Link/Night-Parade-Anomech/releases/latest/download/latest.zip"
   }
 ]
